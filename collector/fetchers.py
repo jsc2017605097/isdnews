@@ -12,6 +12,9 @@ from asgiref.sync import sync_to_async
 from .models import Source, Article, FetchLog
 import logging
 
+# Thêm import cho BeautifulSoup
+from bs4 import BeautifulSoup
+
 logger = logging.getLogger(__name__)
 
 # Wrappers để gọi ORM an toàn trong async
@@ -198,6 +201,51 @@ class FetcherFactory:
         return fetcher_class(source)
 
 
+# Thêm hàm cào chi tiết bài viết
+async def fetch_article_detail(url: str) -> Dict[str, str]:
+    """Cào nội dung chi tiết và ảnh đại diện từ url bài viết"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=15) as resp:
+                if resp.status != 200:
+                    return {"content": "", "thumbnail": ""}
+                html = await resp.text()
+        soup = BeautifulSoup(html, "html.parser")
+        # Loại bỏ các phần không cần thiết
+        for sel in ["script", "style", "footer", ".ads", ".comments", ".related"]:
+            for tag in soup.select(sel):
+                tag.decompose()
+        # Ưu tiên các khối chính
+        root = None
+        for sel in ["main", "article", "#content", ".post", ".entry"]:
+            root = soup.select_one(sel)
+            if root:
+                break
+        if not root:
+            root = soup
+        title = soup.title.string.strip() if soup.title else ""
+        meta = ""
+        meta_tag = soup.find("meta", attrs={"name": "description"})
+        if meta_tag and meta_tag.get("content"):
+            meta = meta_tag["content"].strip()
+        paragraphs = [p.get_text(strip=True) for p in root.find_all("p")]
+        content = f"{title}\n\n{meta}\n\n" + "\n".join(paragraphs)
+        content = content[:4000]
+        # Ảnh đại diện: lấy ảnh đầu tiên trong root hoặc thẻ og:image
+        thumbnail = ""
+        img_tag = root.find("img")
+        if img_tag and img_tag.get("src"):
+            thumbnail = img_tag["src"]
+        else:
+            ogimg = soup.find("meta", property="og:image")
+            if ogimg and ogimg.get("content"):
+                thumbnail = ogimg["content"]
+        return {"content": content, "thumbnail": thumbnail}
+    except Exception as e:
+        logger.warning(f"Lỗi cào chi tiết {url}: {e}")
+        return {"content": "", "thumbnail": ""}
+
+
 class DataCollector:
     """Main collector class to orchestrate fetching"""
 
@@ -219,7 +267,7 @@ class DataCollector:
             saved_count = 0
             for data in articles_data:
                 try:
-                    _, created = await create_article(
+                    article_obj, created = await create_article(
                         url=data['url'],
                         defaults={
                             'title': data['title'],
@@ -231,6 +279,11 @@ class DataCollector:
                     )
                     if created:
                         saved_count += 1
+                        # Cào chi tiết nội dung và thumbnail, cập nhật lại Article
+                        detail = await fetch_article_detail(data['url'])
+                        await sync_to_async(setattr)(article_obj, 'content', detail['content'])
+                        await sync_to_async(setattr)(article_obj, 'thumbnail', detail['thumbnail'])
+                        await sync_to_async(article_obj.save)()
                 except Exception as e:
                     logger.error(f"Error saving article {data.get('url')}: {e}")
                     continue

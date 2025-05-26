@@ -70,6 +70,8 @@ class Article(models.Model):
     # Metadata bổ sung
     summary = models.TextField(blank=True)
     tags = models.JSONField(default=list, blank=True)
+    content = models.TextField(blank=True)  # Nội dung chi tiết bài viết
+    thumbnail = models.URLField(blank=True, null=True)  # Ảnh đại diện bài viết
     
     class Meta:
         verbose_name = "Bài viết"
