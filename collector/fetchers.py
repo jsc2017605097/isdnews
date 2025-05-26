@@ -17,8 +17,21 @@ from bs4 import BeautifulSoup
 
 # Thêm import cho gọi API AI
 import json
+import os
 
 logger = logging.getLogger(__name__)
+
+# Thiết lập logger lưu file riêng cho AI/thumbnail
+ai_log_path = os.path.join(os.path.dirname(__file__), '../logs/collector_ai.log')
+ai_log_path = os.path.abspath(ai_log_path)
+os.makedirs(os.path.dirname(ai_log_path), exist_ok=True)
+ai_logger = logging.getLogger('collector_ai')
+ai_logger.setLevel(logging.INFO)
+if not ai_logger.handlers:
+    file_handler = logging.FileHandler(ai_log_path, encoding='utf-8')
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    file_handler.setFormatter(formatter)
+    ai_logger.addHandler(file_handler)
 
 # Wrappers để gọi ORM an toàn trong async
 create_article = sync_to_async(Article.objects.get_or_create, thread_sensitive=True)
@@ -231,6 +244,7 @@ async def call_openrouter_ai(content: str, url: str) -> str:
                     return content  # fallback: trả về nội dung thô nếu AI lỗi
     except Exception as e:
         logger.warning(f"Lỗi gọi OpenRouter AI: {e}")
+        ai_logger.error(f"Lỗi gọi OpenRouter AI: {e}")
         return content
 
 
@@ -263,18 +277,27 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
         raw_content = raw_content[:4000]
         # Gọi AI để dịch/tóm tắt nội dung sang tiếng Việt dễ hiểu
         ai_content = await call_openrouter_ai(raw_content, url)
-        # Ảnh đại diện: lấy ảnh đầu tiên trong root hoặc thẻ og:image
+        ai_logger.info(f"AI summary for {url}: {ai_content[:200]}...")
+        # Ảnh đại diện: ưu tiên meta og:image, sau đó đến ảnh đầu tiên trong root, cuối cùng là ảnh đầu tiên toàn trang
         thumbnail = ""
-        img_tag = root.find("img")
-        if img_tag and img_tag.get("src"):
-            thumbnail = img_tag["src"]
+        ogimg = soup.find("meta", property="og:image")
+        if ogimg and ogimg.get("content"):
+            thumbnail = ogimg["content"]
+            ai_logger.info(f"Thumbnail og:image for {url}: {thumbnail}")
         else:
-            ogimg = soup.find("meta", property="og:image")
-            if ogimg and ogimg.get("content"):
-                thumbnail = ogimg["content"]
+            img_tag = root.find("img") if root else None
+            if img_tag and img_tag.get("src"):
+                thumbnail = img_tag["src"]
+                ai_logger.info(f"Thumbnail first img in root for {url}: {thumbnail}")
+            else:
+                img_tag2 = soup.find("img")
+                if img_tag2 and img_tag2.get("src"):
+                    thumbnail = img_tag2["src"]
+                    ai_logger.info(f"Thumbnail first img in page for {url}: {thumbnail}")
         return {"content": ai_content, "thumbnail": thumbnail}
     except Exception as e:
         logger.warning(f"Lỗi cào chi tiết {url}: {e}")
+        ai_logger.error(f"Lỗi cào chi tiết {url}: {e}")
         return {"content": "", "thumbnail": ""}
 
 
