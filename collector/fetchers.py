@@ -15,6 +15,9 @@ import logging
 # Thêm import cho BeautifulSoup
 from bs4 import BeautifulSoup
 
+# Thêm import cho gọi API AI
+import json
+
 logger = logging.getLogger(__name__)
 
 # Wrappers để gọi ORM an toàn trong async
@@ -201,9 +204,38 @@ class FetcherFactory:
         return fetcher_class(source)
 
 
-# Thêm hàm cào chi tiết bài viết
+# Hàm gọi OpenRouter AI để dịch và tóm tắt nội dung sang tiếng Việt
+async def call_openrouter_ai(content: str, url: str) -> str:
+    OPENROUTER_API_KEY = "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"
+    OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    prompt = f"Hãy phân tích và đưa ra ý kiến về bài viết này và nói lại cho tôi một cách dễ hiểu bằng tiếng việt, kèm theo link, hình ảnh, ví dụ nếu có, nhớ đặt tiêu đề và kết luận (có dẫn nguồn từ {url}) cho câu trả lời của bạn (tôi yêu cầu nếu bạn không truy cập được url này thì hãy gửi lại link url cho tôi , cái này bắt buộc): {content}"
+    payload = {
+        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "HTTP-Referer": "https://supabase.com"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(OPENROUTER_ENDPOINT, headers=headers, data=json.dumps(payload), timeout=60) as resp:
+                data = await resp.json()
+                if data.get("choices") and data["choices"][0]["message"].get("content"):
+                    return data["choices"][0]["message"]["content"].strip()
+                else:
+                    return content  # fallback: trả về nội dung thô nếu AI lỗi
+    except Exception as e:
+        logger.warning(f"Lỗi gọi OpenRouter AI: {e}")
+        return content
+
+
 async def fetch_article_detail(url: str) -> Dict[str, str]:
-    """Cào nội dung chi tiết và ảnh đại diện từ url bài viết"""
+    """Cào nội dung chi tiết và ảnh đại diện từ url bài viết, sau đó gửi lên AI để dịch/tóm tắt"""
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=15) as resp:
@@ -211,11 +243,9 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
                     return {"content": "", "thumbnail": ""}
                 html = await resp.text()
         soup = BeautifulSoup(html, "html.parser")
-        # Loại bỏ các phần không cần thiết
         for sel in ["script", "style", "footer", ".ads", ".comments", ".related"]:
             for tag in soup.select(sel):
                 tag.decompose()
-        # Ưu tiên các khối chính
         root = None
         for sel in ["main", "article", "#content", ".post", ".entry"]:
             root = soup.select_one(sel)
@@ -229,8 +259,10 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
         if meta_tag and meta_tag.get("content"):
             meta = meta_tag["content"].strip()
         paragraphs = [p.get_text(strip=True) for p in root.find_all("p")]
-        content = f"{title}\n\n{meta}\n\n" + "\n".join(paragraphs)
-        content = content[:4000]
+        raw_content = f"{title}\n\n{meta}\n\n" + "\n".join(paragraphs)
+        raw_content = raw_content[:4000]
+        # Gọi AI để dịch/tóm tắt nội dung sang tiếng Việt dễ hiểu
+        ai_content = await call_openrouter_ai(raw_content, url)
         # Ảnh đại diện: lấy ảnh đầu tiên trong root hoặc thẻ og:image
         thumbnail = ""
         img_tag = root.find("img")
@@ -240,7 +272,7 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
             ogimg = soup.find("meta", property="og:image")
             if ogimg and ogimg.get("content"):
                 thumbnail = ogimg["content"]
-        return {"content": content, "thumbnail": thumbnail}
+        return {"content": ai_content, "thumbnail": thumbnail}
     except Exception as e:
         logger.warning(f"Lỗi cào chi tiết {url}: {e}")
         return {"content": "", "thumbnail": ""}
@@ -259,13 +291,19 @@ class DataCollector:
             'execution_time': 0
         }
 
+        MAX_DETAIL_ARTICLES = 3  # Số bài tối đa cào chi tiết/lần
+        DELAY_BETWEEN_AI = 10    # Giây nghỉ giữa các lần gọi OpenRouter
+
         try:
             fetcher = FetcherFactory.create_fetcher(source)
             articles_data = await fetcher.fetch()
 
             # Save articles (async-safe)
             saved_count = 0
+            detail_count = 0
             for data in articles_data:
+                if detail_count >= MAX_DETAIL_ARTICLES:
+                    break
                 try:
                     article_obj, created = await create_article(
                         url=data['url'],
@@ -281,9 +319,14 @@ class DataCollector:
                         saved_count += 1
                         # Cào chi tiết nội dung và thumbnail, cập nhật lại Article
                         detail = await fetch_article_detail(data['url'])
+                        # Tách tiêu đề tiếng Việt từ content AI (dòng đầu tiên)
+                        vi_title = detail['content'].split('\n', 1)[0].strip() if detail['content'] else data['title']
+                        await sync_to_async(setattr)(article_obj, 'title', vi_title)
                         await sync_to_async(setattr)(article_obj, 'content', detail['content'])
                         await sync_to_async(setattr)(article_obj, 'thumbnail', detail['thumbnail'])
                         await sync_to_async(article_obj.save)()
+                        detail_count += 1
+                        await asyncio.sleep(DELAY_BETWEEN_AI)
                 except Exception as e:
                     logger.error(f"Error saving article {data.get('url')}: {e}")
                     continue
