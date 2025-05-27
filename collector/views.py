@@ -7,6 +7,7 @@ from django.core.paginator import Paginator
 from .models import Source, Article, FetchLog
 from .fetchers import DataCollector
 import json
+from django.shortcuts import render
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CollectDataView(View):

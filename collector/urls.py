@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CollectDataView, ArticlesAPIView, SourcesAPIView, StatsAPIView
+from .views import CollectDataView, ArticlesAPIView, SourcesAPIView, StatsAPIView, FetchLogListView
 
 app_name = 'collector'
 
