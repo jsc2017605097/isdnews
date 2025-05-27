@@ -35,22 +35,26 @@ class Command(BaseCommand):
                     self.style.ERROR(f'Source with ID {options["source_id"]} not found or inactive')
                 )
         else:
-            # Collect from all sources or only those due for update
+            # Collect from all sources hoặc chỉ những nguồn đến hạn thu thập
             if not options['force']:
-                # Filter sources that are due for update
+                # Lọc các nguồn đến hạn thu thập bằng Python (tương thích SQLite)
                 now = timezone.now()
-                sources = Source.objects.filter(
-                    is_active=True
-                ).extra(
-                    where=['last_fetched IS NULL OR (EXTRACT(EPOCH FROM %s) - EXTRACT(EPOCH FROM last_fetched)) >= fetch_interval'],
-                    params=[now]
-                )
-                
-                if not sources.exists():
+                sources = Source.objects.filter(is_active=True)
+                due_sources = [
+                    s for s in sources
+                    if s.last_fetched is None or (now - s.last_fetched).total_seconds() >= s.fetch_interval
+                ]
+                if not due_sources:
                     self.stdout.write(self.style.SUCCESS('No sources due for update'))
                     return
-            
-            results = asyncio.run(collector.collect_all_active_sources())
+                # Giới hạn số lượng nguồn xử lý đồng thời để tránh quá tải
+                MAX_SOURCES = 10
+                limited_sources = due_sources[:MAX_SOURCES]
+                async def collect_all(due_sources, collector):
+                    return await asyncio.gather(*(collector.collect_from_source(s) for s in due_sources))
+                results = asyncio.run(collect_all(limited_sources, collector))
+            else:
+                results = asyncio.run(collector.collect_all_active_sources())
             
             self.stdout.write('\n--- Collection Summary ---')
             for i, result in enumerate(results):
