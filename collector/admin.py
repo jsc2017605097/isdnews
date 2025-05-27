@@ -1,12 +1,20 @@
 from django.contrib import admin
 from .models import Source, FetchLog, AILog
 from django.utils.html import format_html
+from django.contrib import messages
+from collector.task import collect_data_from_all_sources
 
 @admin.register(Source)
 class SourceAdmin(admin.ModelAdmin):
     list_display = ('source', 'url', 'type', 'team', 'is_active', 'fetch_interval', 'force_collect')
     search_fields = ('source', 'url')
     list_filter = ('type', 'team', 'is_active', 'force_collect')
+
+    actions = ['run_collect_all_job']
+    def run_collect_all_job(self, request, queryset):
+        collect_data_from_all_sources.delay()
+        self.message_user(request, "Đã gửi job thu thập tất cả nguồn (chạy nền)!", messages.SUCCESS)
+    run_collect_all_job.short_description = "Chạy job thu thập tất cả nguồn (Celery)"
 
 @admin.register(FetchLog)
 class FetchLogAdmin(admin.ModelAdmin):
