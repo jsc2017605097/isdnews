@@ -217,10 +217,11 @@ class FetcherFactory:
             raise ValueError(f"Unknown source type: {source.type}")
         return fetcher_class(source)
 
-
+# dau tay: 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
+# nguyendocuongbka: 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
 # Hàm gọi OpenRouter AI để dịch và tóm tắt nội dung sang tiếng Việt
 async def call_openrouter_ai(content: str, url: str) -> str:
-    OPENROUTER_API_KEY = "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"
+    OPENROUTER_API_KEY = "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"
     OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
     prompt = f"Hãy phân tích và đưa ra ý kiến về bài viết này và nói lại cho tôi một cách dễ hiểu bằng tiếng việt, kèm theo link, hình ảnh, ví dụ nếu có, nhớ đặt tiêu đề và kết luận (có dẫn nguồn từ {url}) cho câu trả lời của bạn (tôi yêu cầu nếu bạn không truy cập được url này thì hãy gửi lại link url cho tôi , cái này bắt buộc): {content}"
     payload = {
@@ -233,7 +234,6 @@ async def call_openrouter_ai(content: str, url: str) -> str:
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://supabase.com"
     }
     try:
         logger.info(f"[OpenRouter] Gửi prompt cho {url}: {prompt[:500]}...")
@@ -331,11 +331,13 @@ class DataCollector:
             fetcher = FetcherFactory.create_fetcher(source)
             articles_data = await fetcher.fetch()
 
-            # Chỉ lấy 1 bài viết đầu tiên
-            articles_data = articles_data[:1] if articles_data else []
+            # Lọc lấy tối đa 5 bài viết mới (chưa có trong Article)
+            from .models import Article
+            existing_urls = set(await sync_to_async(list)(Article.objects.filter(url__in=[a['url'] for a in articles_data]).values_list('url', flat=True)))
+            new_articles = [a for a in articles_data if a['url'] not in existing_urls][:5]
 
             saved_count = 0
-            for data in articles_data:
+            for data in new_articles:
                 try:
                     article_obj, created = await create_article(
                         url=data['url'],
@@ -355,7 +357,7 @@ class DataCollector:
                     await sync_to_async(setattr)(article_obj, 'thumbnail', detail['thumbnail'])
                     await sync_to_async(article_obj.save)()
                     saved_count += 1
-                    await asyncio.sleep(2)  # Nghỉ 2s giữa các lần gọi AI (dù chỉ 1 bài)
+                    await asyncio.sleep(2)
                 except Exception as e:
                     logger.error(f"Error saving article {data.get('url')}: {e}")
                     continue

@@ -40,9 +40,10 @@ class Command(BaseCommand):
                 # Lọc các nguồn đến hạn thu thập bằng Python (tương thích SQLite)
                 now = timezone.now()
                 sources = Source.objects.filter(is_active=True)
+                # Nếu force_collect=True thì luôn thu thập, còn lại kiểm tra thời gian chờ
                 due_sources = [
                     s for s in sources
-                    if s.last_fetched is None or (now - s.last_fetched).total_seconds() >= s.fetch_interval
+                    if s.force_collect or s.last_fetched is None or (now - s.last_fetched).total_seconds() >= s.fetch_interval
                 ]
                 if not due_sources:
                     self.stdout.write(self.style.SUCCESS('No sources due for update'))

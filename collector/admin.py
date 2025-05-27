@@ -4,9 +4,9 @@ from django.utils.html import format_html
 
 @admin.register(Source)
 class SourceAdmin(admin.ModelAdmin):
-    list_display = ('source', 'url', 'type', 'team')
+    list_display = ('source', 'url', 'type', 'team', 'is_active', 'fetch_interval', 'force_collect')
     search_fields = ('source', 'url')
-    list_filter = ('type', 'team')
+    list_filter = ('type', 'team', 'is_active', 'force_collect')
 
 @admin.register(FetchLog)
 class FetchLogAdmin(admin.ModelAdmin):

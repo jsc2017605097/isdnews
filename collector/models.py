@@ -36,6 +36,7 @@ class Source(models.Model):
     # Thông tin về cấu hình thu thập
     fetch_interval = models.IntegerField(default=3600, help_text="Interval in seconds")
     last_fetched = models.DateTimeField(null=True, blank=True)
+    force_collect = models.BooleanField(default=False, help_text="Bật để luôn thu thập nguồn này, bỏ qua thời gian chờ")
     
     def clean(self):
         super().clean()
