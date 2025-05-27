@@ -104,3 +104,22 @@ class FetchLog(models.Model):
     
     def __str__(self):
         return f"{self.source.source} - {self.get_status_display()} ({self.fetched_at})"
+
+
+class AILog(models.Model):
+    """Log tương tác với OpenRouter AI"""
+    url = models.URLField()
+    prompt = models.TextField()
+    response = models.TextField(blank=True)
+    result = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=[('success', 'Thành công'), ('error', 'Lỗi')], default='success')
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Log AI (OpenRouter)"
+        verbose_name_plural = "Log AI (OpenRouter)"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.url} - {self.status} ({self.created_at})"

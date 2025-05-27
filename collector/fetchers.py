@@ -9,7 +9,7 @@ from email.utils import parsedate_to_datetime
 from django.utils import timezone as django_timezone
 from asgiref.sync import sync_to_async
 
-from .models import Source, Article, FetchLog
+from .models import Source, Article, FetchLog, AILog
 import logging
 
 # Thêm import cho BeautifulSoup
@@ -37,6 +37,7 @@ if not ai_logger.handlers:
 create_article = sync_to_async(Article.objects.get_or_create, thread_sensitive=True)
 update_source_last_fetched = sync_to_async(Source.save, thread_sensitive=True)
 create_fetch_log = sync_to_async(FetchLog.objects.create, thread_sensitive=True)
+create_ailog = sync_to_async(AILog.objects.create, thread_sensitive=True)
 
 class BaseFetcher:
     """Base class for all fetchers"""
@@ -235,16 +236,28 @@ async def call_openrouter_ai(content: str, url: str) -> str:
         "HTTP-Referer": "https://supabase.com"
     }
     try:
+        logger.info(f"[OpenRouter] Gửi prompt cho {url}: {prompt[:500]}...")
         async with aiohttp.ClientSession() as session:
             async with session.post(OPENROUTER_ENDPOINT, headers=headers, data=json.dumps(payload), timeout=60) as resp:
                 data = await resp.json()
+                logger.info(f"[OpenRouter] Nhận response cho {url}: {str(data)[:500]}...")
                 if data.get("choices") and data["choices"][0]["message"].get("content"):
-                    return data["choices"][0]["message"]["content"].strip()
+                    result = data["choices"][0]["message"]["content"].strip()
+                    logger.info(f"[OpenRouter] Nội dung dịch cho {url}: {result[:500]}...")
+                    await create_ailog(url=url, prompt=prompt, response=str(data), result=result, status='success', error_message='')
+                    return result
                 else:
+                    logger.warning(f"[OpenRouter] Không nhận được nội dung dịch cho {url}, trả về content gốc.")
+                    await create_ailog(url=url, prompt=prompt, response=str(data), result=content, status='error', error_message='No content from AI')
                     return content  # fallback: trả về nội dung thô nếu AI lỗi
     except Exception as e:
         logger.warning(f"Lỗi gọi OpenRouter AI: {e}")
-        ai_logger.error(f"Lỗi gọi OpenRouter AI: {e}")
+        # Ghi lại response lỗi nếu có
+        try:
+            error_response = await resp.text() if 'resp' in locals() else ''
+        except Exception:
+            error_response = ''
+        await create_ailog(url=url, prompt=prompt, response=error_response, result=content, status='error', error_message=str(e))
         return content
 
 
@@ -314,19 +327,15 @@ class DataCollector:
             'execution_time': 0
         }
 
-        MAX_DETAIL_ARTICLES = 3  # Số bài tối đa cào chi tiết/lần
-        DELAY_BETWEEN_AI = 10    # Giây nghỉ giữa các lần gọi OpenRouter
-
         try:
             fetcher = FetcherFactory.create_fetcher(source)
             articles_data = await fetcher.fetch()
 
-            # Save articles (async-safe)
+            # Chỉ lấy 1 bài viết đầu tiên
+            articles_data = articles_data[:1] if articles_data else []
+
             saved_count = 0
-            detail_count = 0
             for data in articles_data:
-                if detail_count >= MAX_DETAIL_ARTICLES:
-                    break
                 try:
                     article_obj, created = await create_article(
                         url=data['url'],
@@ -338,18 +347,15 @@ class DataCollector:
                             'summary': data.get('summary', '')
                         }
                     )
-                    if created:
-                        saved_count += 1
-                        # Cào chi tiết nội dung và thumbnail, cập nhật lại Article
-                        detail = await fetch_article_detail(data['url'])
-                        # Tách tiêu đề tiếng Việt từ content AI (dòng đầu tiên)
-                        vi_title = detail['content'].split('\n', 1)[0].strip() if detail['content'] else data['title']
-                        await sync_to_async(setattr)(article_obj, 'title', vi_title)
-                        await sync_to_async(setattr)(article_obj, 'content', detail['content'])
-                        await sync_to_async(setattr)(article_obj, 'thumbnail', detail['thumbnail'])
-                        await sync_to_async(article_obj.save)()
-                        detail_count += 1
-                        await asyncio.sleep(DELAY_BETWEEN_AI)
+                    # Luôn gọi AI để dịch/tóm tắt nội dung chi tiết
+                    detail = await fetch_article_detail(data['url'])
+                    vi_title = detail['content'].split('\n', 1)[0].strip() if detail['content'] else data['title']
+                    await sync_to_async(setattr)(article_obj, 'title', vi_title)
+                    await sync_to_async(setattr)(article_obj, 'content', detail['content'])
+                    await sync_to_async(setattr)(article_obj, 'thumbnail', detail['thumbnail'])
+                    await sync_to_async(article_obj.save)()
+                    saved_count += 1
+                    await asyncio.sleep(2)  # Nghỉ 2s giữa các lần gọi AI (dù chỉ 1 bài)
                 except Exception as e:
                     logger.error(f"Error saving article {data.get('url')}: {e}")
                     continue
