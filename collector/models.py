@@ -73,6 +73,9 @@ class Article(models.Model):
     tags = models.JSONField(default=list, blank=True)
     content = models.TextField(blank=True)  # Nội dung chi tiết bài viết
     thumbnail = models.URLField(blank=True, null=True)  # Ảnh đại diện bài viết
+    is_ai_processed = models.BooleanField(default=False)
+    ai_type = models.CharField(max_length=20, blank=True, default='')
+    ai_content = models.TextField(blank=True, default='')
     
     class Meta:
         verbose_name = "Bài viết"
@@ -124,3 +127,18 @@ class AILog(models.Model):
 
     def __str__(self):
         return f"{self.url} - {self.status} ({self.created_at})"
+
+
+class JobConfig(models.Model):
+    JOB_TYPE_CHOICES = [
+        ('crawl', 'Cào dữ liệu'),
+        ('openrouter', 'Gửi OpenRouter'),
+    ]
+    job_type = models.CharField(max_length=50, choices=JOB_TYPE_CHOICES, unique=True)
+    enabled = models.BooleanField(default=True)
+    limit = models.IntegerField(default=10)
+    round_robin_types = models.JSONField(default=list, blank=True)  # ['dev', 'ba', 'system']
+    last_type_sent = models.CharField(max_length=20, blank=True, default='')
+
+    def __str__(self):
+        return f"{self.get_job_type_display()} (limit: {self.limit})"

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Source, FetchLog, AILog
+from .models import Source, FetchLog, AILog, JobConfig
 from django.utils.html import format_html
 from django.contrib import messages
 from collector.task import collect_data_from_all_sources
@@ -43,3 +43,19 @@ class AILogAdmin(admin.ModelAdmin):
     list_filter = ('status', 'created_at')
     readonly_fields = [f.name for f in AILog._meta.fields]
     date_hierarchy = 'created_at'
+
+@admin.register(JobConfig)
+class JobConfigAdmin(admin.ModelAdmin):
+    list_display = ['job_type', 'enabled', 'limit', 'round_robin_types', 'last_type_sent']
+    list_editable = ['enabled']
+    search_fields = ['job_type']
+    list_filter = ['enabled', 'job_type']
+
+    def get_fields(self, request, obj=None):
+        fields = ['job_type', 'enabled', 'round_robin_types', 'last_type_sent']
+        if not obj or obj.job_type == 'crawl':
+            fields.insert(2, 'limit')
+        return fields
+
+    def get_readonly_fields(self, request, obj=None):
+        return ['last_type_sent']

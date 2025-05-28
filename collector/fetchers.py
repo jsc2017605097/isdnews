@@ -220,14 +220,23 @@ class FetcherFactory:
 # dau tay: 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
 # nguyendocuongbka: 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
 # Hàm gọi OpenRouter AI để dịch và tóm tắt nội dung sang tiếng Việt
-async def call_openrouter_ai(content: str, url: str) -> str:
+async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> str:
     OPENROUTER_API_KEY = "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"
     OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    # Tuỳ theo ai_type mà prompt có thể khác nhau
+    if ai_type == "dev":
+        system_prompt = "Bạn là trợ lý AI cho developer."
+    elif ai_type == "ba":
+        system_prompt = "Bạn là trợ lý AI cho business analyst."
+    elif ai_type == "system":
+        system_prompt = "Bạn là trợ lý AI cho system admin."
+    else:
+        system_prompt = "Bạn là trợ lý AI."
     prompt = f"Hãy phân tích và đưa ra ý kiến về bài viết này và nói lại cho tôi một cách dễ hiểu bằng tiếng việt, kèm theo link, hình ảnh, ví dụ nếu có, nhớ đặt tiêu đề và kết luận (có dẫn nguồn từ {url}) cho câu trả lời của bạn (tôi yêu cầu nếu bạn không truy cập được url này thì hãy gửi lại link url cho tôi , cái này bắt buộc): {content}"
     payload = {
         "model": "deepseek/deepseek-chat-v3-0324:free",
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ]
     }
@@ -346,16 +355,14 @@ class DataCollector:
                             'source': source,
                             'content_type': data['content_type'],
                             'published_at': data['published_at'],
-                            'summary': data.get('summary', '')
+                            'summary': data.get('summary', ''),
+                            'content': '',  # Chưa cào chi tiết, để rỗng hoặc cào thô nếu muốn
+                            'thumbnail': '',
+                            'is_ai_processed': False,
+                            'ai_type': '',
+                            'ai_content': '',
                         }
                     )
-                    # Luôn gọi AI để dịch/tóm tắt nội dung chi tiết
-                    detail = await fetch_article_detail(data['url'])
-                    vi_title = detail['content'].split('\n', 1)[0].strip() if detail['content'] else data['title']
-                    await sync_to_async(setattr)(article_obj, 'title', vi_title)
-                    await sync_to_async(setattr)(article_obj, 'content', detail['content'])
-                    await sync_to_async(setattr)(article_obj, 'thumbnail', detail['thumbnail'])
-                    await sync_to_async(article_obj.save)()
                     saved_count += 1
                     await asyncio.sleep(2)
                 except Exception as e:

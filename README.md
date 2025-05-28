@@ -150,7 +150,8 @@ CELERY_BEAT_SCHEDULE = {
 ```bash
 # Terminal 1: Celery Worker
 celery -A isdnews worker --loglevel=info
-
+#use on window
+celery -A isdnews worker -l info -P solo 
 # Terminal 2: Celery Beat (cho periodic tasks)
 celery -A isdnews beat --loglevel=info
 ```

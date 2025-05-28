@@ -1,9 +1,11 @@
 import asyncio
 from celery import shared_task
 from django.utils import timezone
-from .models import Source
-from .fetchers import DataCollector
+from .models import Source, Article, JobConfig
+from .fetchers import DataCollector, call_openrouter_ai
 import logging
+from django.db import transaction
+from asgiref.sync import async_to_sync
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ def collect_data_from_source(source_id):
 
 @shared_task
 def collect_data_from_all_sources():
-    """Celery task to collect data from all active sources"""
+    logger.info('[Celery Beat] Đã gọi task collect_data_from_all_sources')
     try:
         collector = DataCollector()
         
@@ -108,3 +110,31 @@ def scheduled_collection():
             'success': False,
             'error': str(e)
         }
+
+@shared_task
+def process_openrouter_job():
+    logger.info('[Celery Beat] Đã gọi task process_openrouter_job')
+    config = JobConfig.objects.filter(job_type='openrouter').first()
+    if not config or not config.enabled:
+        return
+
+    types = config.round_robin_types or ['dev', 'ba', 'system']
+    last_type = config.last_type_sent or types[0]
+    idx = types.index(last_type) if last_type in types else 0
+    next_idx = (idx + 1) % len(types)
+    next_type = types[next_idx]
+
+    article = Article.objects.filter(is_ai_processed=False).first()
+    if not article:
+        return
+
+    # Gọi OpenRouter AI (async)
+    ai_content = async_to_sync(call_openrouter_ai)(article.content, article.url, next_type)
+
+    with transaction.atomic():
+        article.ai_content = ai_content
+        article.is_ai_processed = True
+        article.ai_type = next_type
+        article.save()
+        config.last_type_sent = next_type
+        config.save()
