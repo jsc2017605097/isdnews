@@ -2,11 +2,12 @@ import asyncio
 import aiohttp
 import feedparser
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from email.utils import parsedate_to_datetime
 
 from django.utils import timezone as django_timezone
+from django.db import models  # Thêm import này
 from asgiref.sync import sync_to_async
 
 from .models import Source, Article, FetchLog, AILog
@@ -393,10 +394,19 @@ class DataCollector:
         return log_data
 
     async def collect_all_active_sources(self):
-        active_sources = await sync_to_async(list)(Source.objects.filter(is_active=True))
-        tasks = [self.collect_from_source(src) for src in active_sources]
+        now = django_timezone.now()
+        # Lấy các nguồn active và kiểm tra điều kiện thu thập
+        active_sources = await sync_to_async(list)(
+            Source.objects.filter(is_active=True).filter(
+                # Lấy các nguồn có force_collect=True hoặc đã đến thời gian thu thập
+                models.Q(force_collect=True) |
+                models.Q(last_fetched__isnull=True) |
+                models.Q(last_fetched__lte=now - models.F('fetch_interval') * timedelta(seconds=1))
+            )
+        )
 
-        if tasks:
+        if active_sources:
+            tasks = [self.collect_from_source(src) for src in active_sources]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             success_count = sum(1 for r in results if isinstance(r, dict) and r.get('status') == 'success')
             total_articles = sum(r.get('articles_count', 0) for r in results if isinstance(r, dict))
