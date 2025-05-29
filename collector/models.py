@@ -57,6 +57,8 @@ class Source(models.Model):
     class Meta:
         verbose_name = "Nguồn dữ liệu"
         verbose_name_plural = "Nguồn dữ liệu"
+        ordering = ['source']
+        app_label = 'collector'
 
 
 class Article(models.Model):
@@ -64,23 +66,21 @@ class Article(models.Model):
     title = models.CharField(max_length=500)
     url = models.URLField(unique=True)
     source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name='articles')
-    content_type = models.IntegerField(choices=Source.CONTENT_TYPE_CHOICES)
+    content_type = models.IntegerField(choices=Source.CONTENT_TYPE_CHOICES, default=4)
     published_at = models.DateTimeField()
-    fetched_at = models.DateTimeField(auto_now_add=True)
-    
-    # Metadata bổ sung
+    created_at = models.DateTimeField(default=timezone.now)  # Changed from auto_now_add to default
     summary = models.TextField(blank=True)
-    tags = models.JSONField(default=list, blank=True)
-    content = models.TextField(blank=True)  # Nội dung chi tiết bài viết
-    thumbnail = models.URLField(blank=True, null=True)  # Ảnh đại diện bài viết
+    content = models.TextField(blank=True)
+    thumbnail = models.URLField(blank=True)
     is_ai_processed = models.BooleanField(default=False)
-    ai_type = models.CharField(max_length=20, blank=True, default='')
-    ai_content = models.TextField(blank=True, default='')
+    ai_type = models.CharField(max_length=10, blank=True)
+    ai_content = models.TextField(blank=True)
     
     class Meta:
         verbose_name = "Bài viết"
         verbose_name_plural = "Bài viết"
         ordering = ['-published_at']
+        app_label = 'collector'
     
     def __str__(self):
         return self.title
