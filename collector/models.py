@@ -142,3 +142,40 @@ class JobConfig(models.Model):
 
     def __str__(self):
         return f"{self.get_job_type_display()} (limit: {self.limit})"
+
+
+class SystemConfig(models.Model):
+    """Model lưu trữ cấu hình hệ thống"""
+    KEY_TYPES = [
+        ('api_key', 'API Key'),
+        ('webhook', 'Webhook URL'),
+        ('other', 'Other'),
+    ]
+
+    TEAMS = [
+        ('dev', 'Developer'),
+        ('system', 'System Admin'),
+        ('ba', 'Business Analyst'),
+        ('tester', 'Tester'),
+    ]
+
+    key = models.CharField(max_length=100, unique=True, 
+                         help_text="Định danh của cấu hình (vd: openrouter_api_key, teams_webhook_ba)")
+    value = models.TextField(help_text="Giá trị của cấu hình")
+    key_type = models.CharField(max_length=20, choices=KEY_TYPES, default='other')
+    team = models.CharField(max_length=20, choices=TEAMS, null=True, blank=True,
+                          help_text="Team áp dụng (nếu cấu hình dành riêng cho team)")
+    description = models.TextField(blank=True, help_text="Mô tả về cấu hình")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        team_str = f" ({self.get_team_display()})" if self.team else ""
+        return f"{self.key}{team_str}"
+
+    class Meta:
+        verbose_name = "Cấu hình hệ thống"
+        verbose_name_plural = "Cấu hình hệ thống"
+        ordering = ['key']
+        app_label = 'collector'

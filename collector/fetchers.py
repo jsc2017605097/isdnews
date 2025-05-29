@@ -222,8 +222,19 @@ class FetcherFactory:
 # nguyendocuongbka: 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
 # Hàm gọi OpenRouter AI để dịch và tóm tắt nội dung sang tiếng Việt
 async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> str:
-    OPENROUTER_API_KEY = "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"
+    from .utils import get_openrouter_api_key_async, get_teams_webhook
+    
+    OPENROUTER_API_KEY = await get_openrouter_api_key_async()
+    if not OPENROUTER_API_KEY:
+        logger.error("OpenRouter API key not found in configuration")
+        raise Exception("OpenRouter API key not found in configuration")
+
     OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    logger.info(f"Using OpenRouter endpoint with key: {OPENROUTER_API_KEY[:10]}...")
+    
+    # Webhook URL cho team tương ứng
+    teams_webhook = get_teams_webhook(ai_type)
+    
     # Tuỳ theo ai_type mà prompt có thể khác nhau
     if ai_type == "dev":
         system_prompt = "Bạn là trợ lý AI cho developer."
@@ -233,36 +244,52 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
         system_prompt = "Bạn là trợ lý AI cho system admin."
     else:
         system_prompt = "Bạn là trợ lý AI."
+
     prompt = f"Hãy phân tích và đưa ra ý kiến về bài viết này và nói lại cho tôi một cách dễ hiểu bằng tiếng việt, kèm theo link, hình ảnh, ví dụ nếu có, nhớ đặt tiêu đề và kết luận (có dẫn nguồn từ {url}) cho câu trả lời của bạn (tôi yêu cầu nếu bạn không truy cập được url này thì hãy gửi lại link url cho tôi , cái này bắt buộc): {content}"
+    
     payload = {
-        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "model": "deepseek/deepseek-r1:free",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ]
     }
+    
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "HTTP-Referer": "https://github.com/isdnews",
+        "User-Agent": "ISDNews/1.0.0"
     }
+
     try:
         logger.info(f"[OpenRouter] Gửi prompt cho {url}: {prompt[:500]}...")
         async with aiohttp.ClientSession() as session:
-            async with session.post(OPENROUTER_ENDPOINT, headers=headers, data=json.dumps(payload), timeout=60) as resp:
+            async with session.post(OPENROUTER_ENDPOINT, headers=headers, json=payload, timeout=60) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    logger.error(f"[OpenRouter] Error response {resp.status}: {error_text}")
+                    raise Exception(f"OpenRouter API error: {resp.status} - {error_text}")
+
                 data = await resp.json()
                 logger.info(f"[OpenRouter] Nhận response cho {url}: {str(data)[:500]}...")
+                
                 if data.get("choices") and data["choices"][0]["message"].get("content"):
                     result = data["choices"][0]["message"]["content"].strip()
                     logger.info(f"[OpenRouter] Nội dung dịch cho {url}: {result[:500]}...")
                     await create_ailog(url=url, prompt=prompt, response=str(data), result=result, status='success', error_message='')
+                    
+                    if teams_webhook:
+                        await notify_teams(teams_webhook, f"Bài viết mới cho team {ai_type}", result, url)
+                    
                     return result
                 else:
                     logger.warning(f"[OpenRouter] Không nhận được nội dung dịch cho {url}, trả về content gốc.")
                     await create_ailog(url=url, prompt=prompt, response=str(data), result=content, status='error', error_message='No content from AI')
-                    return content  # fallback: trả về nội dung thô nếu AI lỗi
+                    return content
+
     except Exception as e:
         logger.warning(f"Lỗi gọi OpenRouter AI: {e}")
-        # Ghi lại response lỗi nếu có
         try:
             error_response = await resp.text() if 'resp' in locals() else ''
         except Exception:
@@ -413,3 +440,29 @@ class DataCollector:
             logger.info(f"Collection completed: {success_count}/{len(tasks)} sources successful, {total_articles} new articles")
             return results
         return []
+
+async def notify_teams(webhook_url: str, title: str, content: str, url: str = None):
+    """Gửi thông báo đến Microsoft Teams thông qua webhook"""
+    if not webhook_url:
+        return
+        
+    try:
+        card = {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "summary": title,
+            "themeColor": "0076D7",
+            "sections": [{
+                "activityTitle": title,
+                "activitySubtitle": f"Source: {url}" if url else None,
+                "text": content[:1000] + "..." if len(content) > 1000 else content,
+            }]
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(webhook_url, json=card) as resp:
+                if resp.status != 200:
+                    logger.error(f"Error sending Teams notification: {await resp.text()}")
+                    
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification: {e}")

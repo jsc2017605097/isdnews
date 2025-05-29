@@ -1,19 +1,24 @@
 from django.contrib import admin
+from .models import Source, FetchLog, AILog, JobConfig, Article, SystemConfig
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.contrib import messages
 from collector.task import collect_data_from_all_sources
-from .models import Source, FetchLog, AILog, JobConfig, Article, SystemConfig
 
+# Đăng ký các model theo thứ tự hiển thị trong admin
 @admin.register(Source)
 class SourceAdmin(admin.ModelAdmin):
     class Media:
         css = {'all': ('admin/css/custom.css',)}
 
+    verbose_name = _('Nguồn dữ liệu')
+    verbose_name_plural = _('Nguồn dữ liệu')
+    ordering = ['source']
+
     list_display = ('source', 'url', 'type', 'team', 'is_active', 'fetch_interval', 'force_collect')
     search_fields = ('source', 'url')
     list_filter = ('type', 'team', 'is_active', 'force_collect')
-    ordering = ['source']
+    order = 1  # Đặt thứ tự hiển thị
 
     actions = ['run_collect_all_job']
     def run_collect_all_job(self, request, queryset):
@@ -21,16 +26,14 @@ class SourceAdmin(admin.ModelAdmin):
         self.message_user(request, "Đã gửi job thu thập tất cả nguồn (chạy nền)!", messages.SUCCESS)
     run_collect_all_job.short_description = "Chạy job thu thập tất cả nguồn (Celery)"
 
-@admin.register(Article)
+@admin.register(Article) 
 class ArticleAdmin(admin.ModelAdmin):
     class Media:
         css = {'all': ('admin/css/custom.css',)}
 
-    list_display = ('title', 'source', 'content_type', 'published_at', 'short_summary', 'short_content', 'short_ai_content', 'is_ai_processed')
-    list_filter = ('source', 'content_type', 'is_ai_processed', 'published_at')
-    search_fields = ('title', 'content', 'summary', 'ai_content')
-    date_hierarchy = 'published_at'
-    ordering = ('-published_at',)
+    verbose_name = _('Bài viết')
+    verbose_name_plural = _('Bài viết')
+    ordering = ['-published_at']
 
     def short_content(self, obj):
         if obj.content and len(obj.content) > 100:
@@ -50,6 +53,12 @@ class ArticleAdmin(admin.ModelAdmin):
         return obj.ai_content or ''
     short_ai_content.short_description = 'Nội dung AI'
 
+    list_display = ('title', 'source', 'content_type', 'published_at', 'short_summary', 'short_content', 'short_ai_content', 'is_ai_processed')
+    list_filter = ('source', 'content_type', 'is_ai_processed', 'published_at')
+    search_fields = ('title', 'content', 'summary', 'ai_content')
+    date_hierarchy = 'published_at' 
+    ordering = ('-published_at',)
+
 @admin.register(FetchLog)
 class FetchLogAdmin(admin.ModelAdmin):
     list_display = ('fetched_at', 'source', 'status', 'articles_count', 'execution_time', 'error_message')
@@ -60,12 +69,6 @@ class FetchLogAdmin(admin.ModelAdmin):
 
 @admin.register(AILog)
 class AILogAdmin(admin.ModelAdmin):
-    list_display = ('created_at', 'url', 'status', 'error_message', 'short_prompt', 'response', 'short_result')
-    search_fields = ('url', 'prompt', 'result', 'error_message')
-    list_filter = ('status', 'created_at')
-    readonly_fields = [f.name for f in AILog._meta.fields]
-    date_hierarchy = 'created_at'
-
     def short_prompt(self, obj):
         if len(obj.prompt) > 100:
             return format_html('<span title="{}">{}...</span>', obj.prompt, obj.prompt[:100])
@@ -77,6 +80,12 @@ class AILogAdmin(admin.ModelAdmin):
             return format_html('<span title="{}">{}...</span>', obj.result, obj.result[:100])
         return obj.result
     short_result.short_description = 'Result'
+
+    list_display = ('created_at', 'url', 'status', 'error_message', 'short_prompt', 'response', 'short_result')
+    search_fields = ('url', 'prompt', 'result', 'error_message')
+    list_filter = ('status', 'created_at')
+    readonly_fields = [f.name for f in AILog._meta.fields]
+    date_hierarchy = 'created_at'
 
 @admin.register(JobConfig)
 class JobConfigAdmin(admin.ModelAdmin):
@@ -104,14 +113,17 @@ class SystemConfigAdmin(admin.ModelAdmin):
     def get_masked_value(self, obj):
         """Che giấu giá trị nhạy cảm như API key"""
         if obj.key_type == 'api_key' and obj.value:
-            return f"{obj.value[:4]}...{obj.value[-4:]}"
+            return f"{obj.value[:4]}...{obj.value[-4:]}
         elif obj.key_type == 'webhook':
             return "webhook_url (hidden)"
         return obj.value
     get_masked_value.short_description = 'Value'
 
+# Sắp xếp menu trong admin
 def get_app_list(self, request, app_label=None):
-    """Tùy chỉnh thứ tự hiển thị các model trong admin"""
+    """
+    Tùy chỉnh thứ tự hiển thị các model trong admin
+    """
     app_dict = self._build_app_dict(request, app_label)
     app_list = sorted(app_dict.values(), key=lambda x: x['name'].lower())
 
@@ -127,4 +139,4 @@ def get_app_list(self, request, app_label=None):
             }.get(x['object_name'], 10))
     return app_list
 
-admin.AdminSite.get_app_list = get_app_list 
+admin.AdminSite.get_app_list = get_app_list
