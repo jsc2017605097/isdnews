@@ -3,17 +3,29 @@ from django.core.exceptions import ValidationError
 import json
 from django.utils import timezone
 
+class Team(models.Model):
+    """Model quản lý các team trong hệ thống"""
+    code = models.CharField(max_length=20, unique=True, help_text="Mã code của team (ví dụ: dev, ba, system)")
+    name = models.CharField(max_length=100, help_text="Tên đầy đủ của team")
+    description = models.TextField(blank=True, help_text="Mô tả về team")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = "Team"
+        verbose_name_plural = "Teams"
+        ordering = ['name']
+        app_label = 'collector'
+
 class Source(models.Model):
     TYPE_CHOICES = [
         ('api', 'API Endpoint'),
         ('rss', 'RSS Feed'),
         ('static', 'Web Tĩnh (AgentQL)'),
-    ]
-
-    TEAM_CHOICES = [
-        ('dev', 'Developer'),
-        ('system', 'System'),
-        ('ba', 'Business Analyst'),
     ]
 
     CONTENT_TYPE_CHOICES = [
@@ -26,7 +38,7 @@ class Source(models.Model):
     url = models.URLField()
     source = models.CharField(max_length=100)
     type = models.CharField(max_length=10, choices=TYPE_CHOICES)
-    team = models.CharField(max_length=10, choices=TEAM_CHOICES)
+    team = models.ForeignKey(Team, on_delete=models.PROTECT, related_name='sources')
     content_type = models.IntegerField(choices=CONTENT_TYPE_CHOICES, default=4)
     params = models.JSONField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
@@ -60,7 +72,6 @@ class Source(models.Model):
         ordering = ['source']
         app_label = 'collector'
 
-
 class Article(models.Model):
     """Model để lưu trữ các bài viết đã thu thập"""
     title = models.CharField(max_length=500)
@@ -68,13 +79,23 @@ class Article(models.Model):
     source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name='articles')
     content_type = models.IntegerField(choices=Source.CONTENT_TYPE_CHOICES, default=4)
     published_at = models.DateTimeField()
-    created_at = models.DateTimeField(default=timezone.now)  # Changed from auto_now_add to default
+    created_at = models.DateTimeField(default=timezone.now)
     summary = models.TextField(blank=True)
     content = models.TextField(blank=True)
     thumbnail = models.URLField(blank=True)
     is_ai_processed = models.BooleanField(default=False)
     ai_type = models.CharField(max_length=10, blank=True)
     ai_content = models.TextField(blank=True)
+    
+    @property
+    def team(self):
+        """Lấy thông tin team từ source"""
+        return self.source.team
+    
+    @property
+    def team_name(self):
+        """Lấy tên team từ source"""
+        return self.source.team.name if self.source.team else None
     
     class Meta:
         verbose_name = "Article"
@@ -84,7 +105,6 @@ class Article(models.Model):
     
     def __str__(self):
         return self.title
-
 
 class FetchLog(models.Model):
     """Log việc thu thập dữ liệu"""
@@ -101,6 +121,16 @@ class FetchLog(models.Model):
     execution_time = models.FloatField(help_text="Time in seconds")
     fetched_at = models.DateTimeField(auto_now_add=True)
     
+    @property
+    def team(self):
+        """Lấy thông tin team từ source"""
+        return self.source.team
+    
+    @property
+    def team_name(self):
+        """Lấy tên team từ source"""
+        return self.source.team.name if self.source.team else None
+    
     class Meta:
         verbose_name = "Fetch Log"
         verbose_name_plural = "Fetch Logs"
@@ -108,7 +138,6 @@ class FetchLog(models.Model):
     
     def __str__(self):
         return f"{self.source.source} - {self.get_status_display()} ({self.fetched_at})"
-
 
 class AILog(models.Model):
     """Log tương tác với OpenRouter AI"""
@@ -119,6 +148,24 @@ class AILog(models.Model):
     status = models.CharField(max_length=20, choices=[('success', 'Thành công'), ('error', 'Lỗi')], default='success')
     error_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    @property
+    def team(self):
+        """Lấy thông tin team từ article thông qua URL"""
+        try:
+            article = Article.objects.filter(url=self.url).first()
+            if article and article.source and article.source.team:
+                return article.source.team
+        except:
+            pass
+        return None
+    
+    @property
+    def team_name(self):
+        """Lấy tên team từ article nếu có"""
+        if self.team:
+            return self.team.name
+        return None
 
     class Meta:
         verbose_name = "Log AI (OpenRouter)"
@@ -127,7 +174,6 @@ class AILog(models.Model):
 
     def __str__(self):
         return f"{self.url} - {self.status} ({self.created_at})"
-
 
 class JobConfig(models.Model):
     JOB_TYPE_CHOICES = [
@@ -161,18 +207,13 @@ class SystemConfig(models.Model):
         ('webhook', 'Webhook URL'),
     ]
 
-    TEAMS = [
-        ('dev', 'Developer'),
-        ('system', 'System Admin'),
-        ('ba', 'Business Analyst'),
-    ]
-
     key = models.CharField(max_length=100, choices=KEY_CHOICES,
                          help_text="Chọn loại cấu hình cần thiết lập")
     value = models.TextField(help_text="Nhập giá trị cấu hình (API key hoặc webhook URL)")
     key_type = models.CharField(max_length=20, choices=KEY_TYPES)
-    team = models.CharField(max_length=20, choices=TEAMS, null=True, blank=True,
-                          help_text="Chọn team (chỉ áp dụng cho Teams Webhook)")
+    team = models.ForeignKey(Team, on_delete=models.PROTECT, related_name='configs', 
+                           null=True, blank=True,
+                           help_text="Chọn team (chỉ áp dụng cho Teams Webhook)")
     description = models.TextField(blank=True, help_text="Mô tả về cấu hình")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -190,7 +231,7 @@ class SystemConfig(models.Model):
 
     def __str__(self):
         if self.team:
-            return f"{self.get_key_display()} ({self.get_team_display()})"
+            return f"{self.get_key_display()} ({self.team.name})"
         return self.get_key_display()
 
     class Meta:

@@ -1,5 +1,5 @@
 from typing import Optional
-from .models import SystemConfig
+from .models import SystemConfig, Team
 from django.core.cache import cache
 import logging
 from django.core.cache import cache
@@ -91,17 +91,47 @@ def get_config_value(key: str, team: str = None) -> str:
             
     return value
 
-def get_teams_webhook(team: str) -> str:
+def get_teams_webhook(team_code: str) -> str:
     """
     Lấy Teams webhook URL cho một team cụ thể
     """
-    return get_config_value('teams_webhook', team)
+    try:
+        # Tìm team theo id thay vì code
+        team = Team.objects.get(id=team_code, is_active=True)
+        # Lấy webhook URL cho team đó
+        config = SystemConfig.objects.filter(
+            key='teams_webhook',
+            team=team,
+            is_active=True
+        ).first()
+        return config.value if config else None
+    except Team.DoesNotExist:
+        logger.error(f"Team with id {team_code} not found")
+        return None
+    except Exception as e:
+        logger.error(f"Error getting teams webhook: {str(e)}")
+        return None
 
-async def get_teams_webhook_async(team: str) -> str:
+async def get_teams_webhook_async(team_code: str) -> str:
     """
     Lấy Teams webhook URL cho một team cụ thể (async version)
     """
-    return await get_system_config_async('teams_webhook', team)
+    try:
+        # Tìm team theo id thay vì code
+        team = await sync_to_async(Team.objects.get)(id=team_code, is_active=True)
+        # Lấy webhook URL cho team đó
+        config = await sync_to_async(SystemConfig.objects.filter)(
+            key='teams_webhook',
+            team=team,
+            is_active=True
+        ).first()
+        return config.value if config else None
+    except Team.DoesNotExist:
+        logger.error(f"Team with id {team_code} not found")
+        return None
+    except Exception as e:
+        logger.error(f"Error getting teams webhook: {str(e)}")
+        return None
 
 async def get_openrouter_api_key_async() -> str:
     """Get OpenRouter API key from system config (async version)"""

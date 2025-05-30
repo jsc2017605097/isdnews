@@ -71,15 +71,19 @@ class ArticlesAPIView(View):
             page_size = min(int(request.GET.get('page_size', 20)), 100)  # Max 100 items per page
             source_id = request.GET.get('source_id')
             content_type = request.GET.get('content_type')
+            team_id = request.GET.get('team_id')  # Thêm filter theo team
             
             # Build query
-            articles = Article.objects.select_related('source').order_by('-published_at')
+            articles = Article.objects.select_related('source', 'source__team').order_by('-published_at')
             
             if source_id:
                 articles = articles.filter(source_id=source_id)
             
             if content_type:
                 articles = articles.filter(content_type=content_type)
+                
+            if team_id:
+                articles = articles.filter(source__team_id=team_id)
             
             # Pagination
             paginator = Paginator(articles, page_size)
@@ -97,25 +101,29 @@ class ArticlesAPIView(View):
                         'name': article.source.source,
                         'type': article.source.get_type_display()
                     },
+                    'team': {
+                        'id': article.team.id,
+                        'name': article.team.name,
+                        'code': article.team.code
+                    } if article.team else None,
                     'content_type': article.get_content_type_display(),
                     'published_at': article.published_at.isoformat(),
-                    'fetched_at': article.fetched_at.isoformat(),
+                    'created_at': article.created_at.isoformat(),
                     'summary': article.summary,
-                    'tags': article.tags
+                    'content': article.content,
+                    'thumbnail': article.thumbnail,
+                    'is_ai_processed': article.is_ai_processed,
+                    'ai_type': article.ai_type,
+                    'ai_content': article.ai_content
                 })
             
             return JsonResponse({
                 'success': True,
                 'data': {
                     'articles': articles_data,
-                    'pagination': {
-                        'current_page': page,
-                        'total_pages': paginator.num_pages,
-                        'total_items': paginator.count,
-                        'has_next': page_obj.has_next(),
-                        'has_previous': page_obj.has_previous(),
-                        'page_size': page_size
-                    }
+                    'total_count': paginator.count,
+                    'total_pages': paginator.num_pages,
+                    'current_page': page
                 }
             })
             
@@ -124,7 +132,6 @@ class ArticlesAPIView(View):
                 'success': False,
                 'error': str(e)
             }, status=500)
-
 
 class SourcesAPIView(View):
     """API to get sources information"""
@@ -167,6 +174,134 @@ class SourcesAPIView(View):
                 'error': str(e)
             }, status=500)
 
+
+class FetchLogsAPIView(View):
+    """API to get fetch logs with filtering and pagination"""
+    
+    def get(self, request):
+        try:
+            # Get query parameters
+            page = int(request.GET.get('page', 1))
+            page_size = min(int(request.GET.get('page_size', 20)), 100)
+            source_id = request.GET.get('source_id')
+            team_id = request.GET.get('team_id')
+            status = request.GET.get('status')
+            
+            # Build query
+            logs = FetchLog.objects.select_related('source', 'source__team').order_by('-fetched_at')
+            
+            if source_id:
+                logs = logs.filter(source_id=source_id)
+            
+            if team_id:
+                logs = logs.filter(source__team_id=team_id)
+                
+            if status:
+                logs = logs.filter(status=status)
+            
+            # Pagination
+            paginator = Paginator(logs, page_size)
+            page_obj = paginator.get_page(page)
+            
+            # Serialize data
+            logs_data = []
+            for log in page_obj:
+                logs_data.append({
+                    'id': log.id,
+                    'source': {
+                        'id': log.source.id,
+                        'name': log.source.source,
+                        'type': log.source.get_type_display()
+                    },
+                    'team': {
+                        'id': log.team.id,
+                        'name': log.team.name,
+                        'code': log.team.code
+                    } if log.team else None,
+                    'status': log.status,
+                    'status_display': log.get_status_display(),
+                    'articles_count': log.articles_count,
+                    'error_message': log.error_message,
+                    'execution_time': log.execution_time,
+                    'fetched_at': log.fetched_at.isoformat()
+                })
+            
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'logs': logs_data,
+                    'total_count': paginator.count,
+                    'total_pages': paginator.num_pages,
+                    'current_page': page
+                }
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+
+class AILogsAPIView(View):
+    """API to get AI logs with filtering and pagination"""
+    
+    def get(self, request):
+        try:
+            # Get query parameters
+            page = int(request.GET.get('page', 1))
+            page_size = min(int(request.GET.get('page_size', 20)), 100)
+            team_id = request.GET.get('team_id')
+            status = request.GET.get('status')
+            
+            # Build query
+            logs = AILog.objects.select_related(
+                'article', 'article__source', 'article__source__team'
+            ).order_by('-created_at')
+            
+            if team_id:
+                logs = logs.filter(article__source__team_id=team_id)
+                
+            if status:
+                logs = logs.filter(status=status)
+            
+            # Pagination
+            paginator = Paginator(logs, page_size)
+            page_obj = paginator.get_page(page)
+            
+            # Serialize data
+            logs_data = []
+            for log in page_obj:
+                logs_data.append({
+                    'id': log.id,
+                    'url': log.url,
+                    'team': {
+                        'id': log.team.id,
+                        'name': log.team.name,
+                        'code': log.team.code
+                    } if log.team else None,
+                    'prompt': log.prompt,
+                    'response': log.response,
+                    'result': log.result,
+                    'status': log.status,
+                    'error_message': log.error_message,
+                    'created_at': log.created_at.isoformat()
+                })
+            
+            return JsonResponse({
+                'success': True,
+                'data': {
+                    'logs': logs_data,
+                    'total_count': paginator.count,
+                    'total_pages': paginator.num_pages,
+                    'current_page': page
+                }
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'error': str(e)
+            }, status=500)
 
 class StatsAPIView(View):
     """API to get collection statistics"""
