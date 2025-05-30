@@ -280,7 +280,10 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
                     await create_ailog(url=url, prompt=prompt, response=str(data), result=result, status='success', error_message='')
                     
                     if teams_webhook:
+                        logger.info(f"[OpenRouter] Sending notification to team {ai_type} for URL: {url}")
                         await notify_teams(teams_webhook, f"Bài viết mới cho team {ai_type}", result, url)
+                    else:
+                        logger.warning(f"[OpenRouter] No Teams webhook found for team {ai_type}, skipping notification")
                     
                     return result
                 else:
@@ -443,7 +446,14 @@ class DataCollector:
 
 async def notify_teams(webhook_url: str, title: str, content: str, url: str = None):
     """Gửi thông báo đến Microsoft Teams thông qua webhook"""
+    logger.info(f"[Teams] Preparing to send notification...")
+    logger.info(f"[Teams] Webhook URL: {webhook_url[:30]}...")
+    logger.info(f"[Teams] Title: {title}")
+    logger.info(f"[Teams] URL: {url}")
+    logger.info(f"[Teams] Content length: {len(content)} characters")
+    
     if not webhook_url:
+        logger.warning("[Teams] No webhook URL provided, skipping notification")
         return
         
     try:
@@ -455,14 +465,21 @@ async def notify_teams(webhook_url: str, title: str, content: str, url: str = No
             "sections": [{
                 "activityTitle": title,
                 "activitySubtitle": f"Source: {url}" if url else None,
-                "text": content[:1000] + "..." if len(content) > 1000 else content,
+                "text": content  # Gửi toàn bộ nội dung không cắt ngắn
             }]
         }
         
+        logger.info("[Teams] Sending request to Teams webhook...")
         async with aiohttp.ClientSession() as session:
             async with session.post(webhook_url, json=card) as resp:
-                if resp.status != 200:
-                    logger.error(f"Error sending Teams notification: {await resp.text()}")
+                response_text = await resp.text()
+                if resp.status == 200:
+                    logger.info("[Teams] Successfully sent notification to Teams")
+                    logger.debug(f"[Teams] Response: {response_text}")
+                else:
+                    logger.error(f"[Teams] Error sending notification. Status: {resp.status}")
+                    logger.error(f"[Teams] Error response: {response_text}")
                     
     except Exception as e:
-        logger.error(f"Failed to send Teams notification: {e}")
+        logger.error(f"[Teams] Failed to send notification: {str(e)}")
+        logger.exception("[Teams] Full exception:")

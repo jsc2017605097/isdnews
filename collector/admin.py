@@ -64,7 +64,7 @@ class FetchLogAdmin(admin.ModelAdmin):
 
 @admin.register(AILog)
 class AILogAdmin(admin.ModelAdmin):
-    list_display = ('created_at', 'url', 'status', 'error_message', 'short_prompt', 'response', 'short_result')
+    list_display = ('created_at', 'url', 'status', 'error_message', 'short_prompt', 'short_result')
     search_fields = ('url', 'prompt', 'result', 'error_message')
     list_filter = ('status', 'created_at')
     readonly_fields = [f.name for f in AILog._meta.fields]
@@ -72,13 +72,13 @@ class AILogAdmin(admin.ModelAdmin):
 
     def short_prompt(self, obj):
         if len(obj.prompt) > 100:
-            return format_html('<span title="{}">{}...</span>', obj.prompt, obj.prompt[:100])
+            return format_html('<span title="{}">{}&hellip;</span>', obj.prompt, obj.prompt[:100])
         return obj.prompt
     short_prompt.short_description = 'Prompt'
 
     def short_result(self, obj):
         if len(obj.result) > 100:
-            return format_html('<span title="{}">{}...</span>', obj.result, obj.result[:100])
+            return format_html('<span title="{}">{}&hellip;</span>', obj.result, obj.result[:100])
         return obj.result
     short_result.short_description = 'Result'
 
@@ -100,10 +100,16 @@ class JobConfigAdmin(admin.ModelAdmin):
 
 @admin.register(SystemConfig)
 class SystemConfigAdmin(admin.ModelAdmin):
-    list_display = ('key', 'key_type', 'team', 'get_masked_value', 'is_active', 'updated_at')
-    list_filter = ('key_type', 'team', 'is_active')
-    search_fields = ('key', 'description')
-    readonly_fields = ('created_at', 'updated_at')
+    list_display = ('key', 'team', 'get_masked_value', 'is_active', 'updated_at')
+    list_filter = ('key', 'team', 'is_active')
+    search_fields = ('key', 'description', 'value')
+    readonly_fields = ('created_at', 'updated_at', 'key_type')
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if obj and obj.key == 'openrouter_api_key':
+            form.base_fields['team'].disabled = True
+        return form
     
     def get_masked_value(self, obj):
         """Che giấu giá trị nhạy cảm như API key"""

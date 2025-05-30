@@ -151,36 +151,51 @@ class JobConfig(models.Model):
 
 class SystemConfig(models.Model):
     """Model lưu trữ cấu hình hệ thống"""
+    KEY_CHOICES = [
+        ('openrouter_api_key', 'OpenRouter API Key'),
+        ('teams_webhook', 'Teams Webhook URL')
+    ]
+
     KEY_TYPES = [
         ('api_key', 'API Key'),
         ('webhook', 'Webhook URL'),
-        ('other', 'Other'),
     ]
 
     TEAMS = [
         ('dev', 'Developer'),
         ('system', 'System Admin'),
         ('ba', 'Business Analyst'),
-        ('tester', 'Tester'),
     ]
 
-    key = models.CharField(max_length=100, unique=True, 
-                         help_text="Định danh của cấu hình (vd: openrouter_api_key, teams_webhook_ba)")
-    value = models.TextField(help_text="Giá trị của cấu hình")
-    key_type = models.CharField(max_length=20, choices=KEY_TYPES, default='other')
+    key = models.CharField(max_length=100, choices=KEY_CHOICES,
+                         help_text="Chọn loại cấu hình cần thiết lập")
+    value = models.TextField(help_text="Nhập giá trị cấu hình (API key hoặc webhook URL)")
+    key_type = models.CharField(max_length=20, choices=KEY_TYPES)
     team = models.CharField(max_length=20, choices=TEAMS, null=True, blank=True,
-                          help_text="Team áp dụng (nếu cấu hình dành riêng cho team)")
+                          help_text="Chọn team (chỉ áp dụng cho Teams Webhook)")
     description = models.TextField(blank=True, help_text="Mô tả về cấu hình")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def clean(self):
+        super().clean()
+        if self.key == 'openrouter_api_key':
+            self.key_type = 'api_key'
+            self.team = None
+        else:  # teams_webhook
+            self.key_type = 'webhook'
+            if not self.team:
+                raise ValidationError({'team': 'Team is required for Teams Webhook'})
+
     def __str__(self):
-        team_str = f" ({self.get_team_display()})" if self.team else ""
-        return f"{self.key}{team_str}"
+        if self.team:
+            return f"{self.get_key_display()} ({self.get_team_display()})"
+        return self.get_key_display()
 
     class Meta:
         verbose_name = "System Config"
         verbose_name_plural = "System Configs"
         ordering = ['key']
+        unique_together = [('key', 'team')]  # Cho phép nhiều webhook với team khác nhau
         app_label = 'collector'
