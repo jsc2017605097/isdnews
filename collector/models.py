@@ -146,7 +146,7 @@ class JobConfig(models.Model):
     class Meta:
         verbose_name = "Job Config"
         verbose_name_plural = "Job Configs"
-        app_label = "django_celery_beat"
+        app_label = "collector"
 
 
 class SystemConfig(models.Model):
