@@ -97,6 +97,12 @@ def get_teams_webhook(team: str) -> str:
     """
     return get_config_value('teams_webhook', team)
 
+async def get_teams_webhook_async(team: str) -> str:
+    """
+    Lấy Teams webhook URL cho một team cụ thể (async version)
+    """
+    return await get_system_config_async('teams_webhook', team)
+
 async def get_openrouter_api_key_async() -> str:
     """Get OpenRouter API key from system config (async version)"""
     key = await get_system_config_async('openrouter_api_key')

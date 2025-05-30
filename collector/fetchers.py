@@ -222,7 +222,7 @@ class FetcherFactory:
 # nguyendocuongbka: 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
 # Hàm gọi OpenRouter AI để dịch và tóm tắt nội dung sang tiếng Việt
 async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> str:
-    from .utils import get_openrouter_api_key_async, get_teams_webhook
+    from .utils import get_openrouter_api_key_async, get_teams_webhook_async
     
     OPENROUTER_API_KEY = await get_openrouter_api_key_async()
     if not OPENROUTER_API_KEY:
@@ -233,7 +233,7 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
     logger.info(f"Using OpenRouter endpoint with key: {OPENROUTER_API_KEY[:10]}...")
     
     # Webhook URL cho team tương ứng
-    teams_webhook = get_teams_webhook(ai_type)
+    teams_webhook = await get_teams_webhook_async(ai_type)
     
     # Tuỳ theo ai_type mà prompt có thể khác nhau
     if ai_type == "dev":
