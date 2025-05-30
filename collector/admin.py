@@ -14,12 +14,16 @@ class SourceAdmin(admin.ModelAdmin):
     search_fields = ('source', 'url')
     list_filter = ('type', 'team', 'is_active', 'force_collect')
     ordering = ['source']
-
+    
     actions = ['run_collect_all_job']
     def run_collect_all_job(self, request, queryset):
         collect_data_from_all_sources.delay()
-        self.message_user(request, "Đã gửi job thu thập tất cả nguồn (chạy nền)!", messages.SUCCESS)
-    run_collect_all_job.short_description = "Chạy job thu thập tất cả nguồn (Celery)"
+        self.message_user(request, "Data collection job has been queued!", messages.SUCCESS)
+    run_collect_all_job.short_description = "Run Data Collection (Celery)"
+    
+    class Meta:
+        model = Source
+        app_label = "Data Source Management"
 
 @admin.register(Article)
 class ArticleAdmin(admin.ModelAdmin):
@@ -127,4 +131,4 @@ def get_app_list(self, request, app_label=None):
             }.get(x['object_name'], 10))
     return app_list
 
-admin.AdminSite.get_app_list = get_app_list 
+admin.AdminSite.get_app_list = get_app_list

@@ -55,8 +55,8 @@ class Source(models.Model):
         return f"{self.source} ({self.get_type_display()})"
 
     class Meta:
-        verbose_name = "Nguồn dữ liệu"
-        verbose_name_plural = "Nguồn dữ liệu"
+        verbose_name = "Data Source"
+        verbose_name_plural = "Data Sources"
         ordering = ['source']
         app_label = 'collector'
 
@@ -77,8 +77,8 @@ class Article(models.Model):
     ai_content = models.TextField(blank=True)
     
     class Meta:
-        verbose_name = "Bài viết"
-        verbose_name_plural = "Bài viết"
+        verbose_name = "Article"
+        verbose_name_plural = "Articles"
         ordering = ['-published_at']
         app_label = 'collector'
     
@@ -102,8 +102,8 @@ class FetchLog(models.Model):
     fetched_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
-        verbose_name = "Log thu thập"
-        verbose_name_plural = "Log thu thập"
+        verbose_name = "Fetch Log"
+        verbose_name_plural = "Fetch Logs"
         ordering = ['-fetched_at']
     
     def __str__(self):
@@ -143,6 +143,11 @@ class JobConfig(models.Model):
     def __str__(self):
         return f"{self.get_job_type_display()} (limit: {self.limit})"
 
+    class Meta:
+        verbose_name = "Job Config"
+        verbose_name_plural = "Job Configs"
+        app_label = "django_celery_beat"
+
 
 class SystemConfig(models.Model):
     """Model lưu trữ cấu hình hệ thống"""
@@ -175,7 +180,7 @@ class SystemConfig(models.Model):
         return f"{self.key}{team_str}"
 
     class Meta:
-        verbose_name = "Cấu hình hệ thống"
-        verbose_name_plural = "Cấu hình hệ thống"
+        verbose_name = "System Config"
+        verbose_name_plural = "System Configs"
         ordering = ['key']
         app_label = 'collector'
