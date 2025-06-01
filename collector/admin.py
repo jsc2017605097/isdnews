@@ -42,15 +42,14 @@ class ArticleAdmin(admin.ModelAdmin):
     class Media:
         css = {'all': ('admin/css/custom.css',)}
 
-    list_display = ('title', 'source', 'team_name', 'content_type', 'published_at', 
+    list_display = ('title', 'source', 'team_name', 'published_at', 
                    'short_summary', 'short_content', 'short_ai_content', 'is_ai_processed')
-    list_filter = ('source', 'source__team', 'content_type', 'is_ai_processed', 'published_at')
+    list_filter = ('source', 'source__team', 'is_ai_processed', 'published_at')
     search_fields = ('title', 'content', 'summary', 'ai_content')
     date_hierarchy = 'published_at'
     ordering = ('-published_at',)
     
-    # Thêm fields để hiển thị trong form
-    fields = ('title', 'url', 'source', 'content_type', 'published_at', 
+    fields = ('title', 'url', 'source', 'published_at', 
              'summary', 'content', 'thumbnail', 'is_ai_processed', 
              'ai_type', 'ai_content', 'created_at')
     readonly_fields = ('created_at',)

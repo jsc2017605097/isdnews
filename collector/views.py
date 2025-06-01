@@ -68,19 +68,14 @@ class ArticlesAPIView(View):
         try:
             # Get query parameters
             page = int(request.GET.get('page', 1))
-            page_size = min(int(request.GET.get('page_size', 20)), 100)  # Max 100 items per page
+            page_size = min(int(request.GET.get('page_size', 20)), 100)
             source_id = request.GET.get('source_id')
-            content_type = request.GET.get('content_type')
-            team_id = request.GET.get('team_id')  # Thêm filter theo team
+            team_id = request.GET.get('team_id')
             
-            # Build query
             articles = Article.objects.select_related('source', 'source__team').order_by('-published_at')
             
             if source_id:
                 articles = articles.filter(source_id=source_id)
-            
-            if content_type:
-                articles = articles.filter(content_type=content_type)
                 
             if team_id:
                 articles = articles.filter(source__team_id=team_id)

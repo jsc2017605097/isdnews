@@ -94,7 +94,6 @@ class RSSFetcher(BaseFetcher):
                                 'url': item.get('link', ''),
                                 'source': self.source,
                                 'published_at': self.parse_date(item.get('published', '')),
-                                'content_type': self.source.content_type,
                                 'summary': item.get('summary', '')
                             }
                             articles.append(article_data)
@@ -141,7 +140,6 @@ class APIFetcher(BaseFetcher):
                 'url': item.get('url', item.get('link', '')),
                 'source': self.source,
                 'published_at': self.parse_date(item.get('published_at', item.get('pubDate', ''))),
-                'content_type': self.source.content_type,
                 'summary': item.get('summary', item.get('description', ''))
             }
             articles.append(article_data)
@@ -196,7 +194,6 @@ class AgentQLFetcher(BaseFetcher):
                     'url': url,
                     'source': self.source,
                     'published_at': django_timezone.now(),
-                    'content_type': self.source.content_type,
                     'summary': ''
                 })
         return articles

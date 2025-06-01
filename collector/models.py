@@ -28,18 +28,10 @@ class Source(models.Model):
         ('static', 'Web Tĩnh (AgentQL)'),
     ]
 
-    CONTENT_TYPE_CHOICES = [
-        (1, 'Kinh tế/Tài chính'),
-        (2, 'YouTube/Social Media'),
-        (3, 'Công nghệ'),
-        (4, 'Tin tức tổng hợp'),
-    ]
-
     url = models.URLField()
     source = models.CharField(max_length=100)
     type = models.CharField(max_length=10, choices=TYPE_CHOICES)
     team = models.ForeignKey(Team, on_delete=models.PROTECT, related_name='sources')
-    content_type = models.IntegerField(choices=CONTENT_TYPE_CHOICES, default=4)
     params = models.JSONField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -77,7 +69,6 @@ class Article(models.Model):
     title = models.CharField(max_length=500)
     url = models.URLField(unique=True)
     source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name='articles')
-    content_type = models.IntegerField(choices=Source.CONTENT_TYPE_CHOICES, default=4)
     published_at = models.DateTimeField()
     created_at = models.DateTimeField(default=timezone.now)
     summary = models.TextField(blank=True)
