@@ -97,7 +97,7 @@ def get_teams_webhook(team_code: str) -> str:
     """
     try:
         # Tìm team theo id thay vì code
-        team = Team.objects.get(id=team_code, is_active=True)
+        team = Team.objects.get(code=team_code, is_active=True)
         # Lấy webhook URL cho team đó
         config = SystemConfig.objects.filter(
             key='teams_webhook',
@@ -118,16 +118,17 @@ async def get_teams_webhook_async(team_code: str) -> str:
     """
     try:
         # Tìm team theo id thay vì code
-        team = await sync_to_async(Team.objects.get)(id=team_code, is_active=True)
+        team = await sync_to_async(Team.objects.get)(code=team_code, is_active=True)
         # Lấy webhook URL cho team đó
-        config = await sync_to_async(SystemConfig.objects.filter)(
+        # Sử dụng sync_to_async để chạy toàn bộ truy vấn đồng bộ trong async context
+        config = await sync_to_async(lambda: SystemConfig.objects.filter(
             key='teams_webhook',
             team=team,
             is_active=True
-        ).first()
+        ).first())()
         return config.value if config else None
     except Team.DoesNotExist:
-        logger.error(f"Team with id {team_code} not found")
+        logger.error(f"Team with code {team_code} not found") # Sửa lại log cho chính xác
         return None
     except Exception as e:
         logger.error(f"Error getting teams webhook: {str(e)}")

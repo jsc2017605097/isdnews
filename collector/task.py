@@ -1,11 +1,11 @@
 import asyncio
 from celery import shared_task
 from django.utils import timezone
-from .models import Source, Article, JobConfig
+from .models import Source, Article, JobConfig, Team
 from .fetchers import DataCollector, call_openrouter_ai
 import logging
 from django.db import transaction
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 
 logger = logging.getLogger(__name__)
 
@@ -111,30 +111,63 @@ def scheduled_collection():
             'error': str(e)
         }
 
-@shared_task
-def process_openrouter_job():
-    logger.info('[Celery Beat] Đã gọi task process_openrouter_job')
-    config = JobConfig.objects.filter(job_type='openrouter').first()
+# === Helper async function to process OpenRouter job ===
+async def _process_openrouter_async():
+    logger.info('[Celery Beat] Running _process_openrouter_async')
+    config = await sync_to_async(JobConfig.objects.filter(job_type='openrouter').first)()
     if not config or not config.enabled:
+        logger.info('OpenRouter job disabled or config not found.')
         return
 
-    types = config.round_robin_types or ['dev', 'ba', 'system']
-    last_type = config.last_type_sent or types[0]
+    # Lấy danh sách team codes từ database thay vì fix cứng
+    try:
+        # Sử dụng sync_to_async để gọi ORM trong async context
+        teams = await sync_to_async(list)(Team.objects.filter(is_active=True).values_list('code', flat=True))
+    except Exception as e:
+        logger.error(f"Error fetching active team codes from database: {e}")
+        return # Hoặc xử lý lỗi theo cách khác phù hợp
+
+    if not teams:
+        logger.warning("No active teams found in database.")
+        return
+
+    types = teams
+
+    # Áp dụng logic round-robin cho các team codes lấy từ database
+    # last_type = await sync_to_async(lambda: config.last_type_sent or types[0])()
+    last_type = config.last_type_sent if config.last_type_sent else types[0]
+
     idx = types.index(last_type) if last_type in types else 0
     next_idx = (idx + 1) % len(types)
     next_type = types[next_idx]
 
-    article = Article.objects.filter(is_ai_processed=False).first()
+    article = await sync_to_async(Article.objects.filter(is_ai_processed=False).first)()
     if not article:
+        logger.info('No articles to process for OpenRouter job.')
         return
 
     # Gọi OpenRouter AI (async)
-    ai_content = async_to_sync(call_openrouter_ai)(article.content, article.url, next_type)
+    ai_content = await call_openrouter_ai(article.content, article.url, next_type)
 
-    with transaction.atomic():
-        article.ai_content = ai_content
-        article.is_ai_processed = True
-        article.ai_type = next_type
-        article.save()
-        config.last_type_sent = next_type
-        config.save()
+    # Cập nhật bài viết và config (trong sync context)
+    def update_article_and_config():
+        with transaction.atomic():
+            # Lấy lại article object trong transaction để đảm bảo tính nhất quán
+            article_obj = Article.objects.get(id=article.id)
+            article_obj.ai_content = ai_content
+            article_obj.is_ai_processed = True
+            article_obj.ai_type = next_type
+            article_obj.save()
+
+            # Lấy lại config object trong transaction
+            config_obj = JobConfig.objects.get(id=config.id)
+            config_obj.last_type_sent = next_type
+            config_obj.save()
+
+    await sync_to_async(update_article_and_config)()
+
+# === Celery task ===
+@shared_task
+def process_openrouter_job():
+    logger.info('[Celery Beat] Triggering async OpenRouter job')
+    async_to_sync(_process_openrouter_async)()

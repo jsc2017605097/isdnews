@@ -86,6 +86,9 @@ class RSSFetcher(BaseFetcher):
                 async with session.get(self.source.url) as response:
                     if response.status == 200:
                         xml_data = await response.text()
+                        # Fix: Thay thế root element <ss> bằng <rss> nếu có
+                        # xml_data = xml_data.replace('<ss ', '<rss ').replace('</ss>', '</rss>') # Hoàn tác thay đổi này vì root element đã đúng là <rss>
+
                         feed = feedparser.parse(xml_data)
 
                         for item in feed.entries:
@@ -381,7 +384,6 @@ class DataCollector:
                         defaults={
                             'title': data['title'],
                             'source': source,
-                            'content_type': data['content_type'],
                             'published_at': data['published_at'],
                             'summary': data.get('summary', ''),
                             'content': '',  # Chưa cào chi tiết, để rỗng hoặc cào thô nếu muốn
