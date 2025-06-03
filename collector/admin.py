@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.contrib import messages
-from collector.task import collect_data_from_all_sources
+from collector.tasks import collect_data_from_all_sources
 from .models import Source, FetchLog, AILog, JobConfig, Article, SystemConfig, Team
 
 @admin.register(Team)
