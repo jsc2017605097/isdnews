@@ -9,8 +9,8 @@
     "params": {}
   },
   {
-    "source": "Reddit/r/youtubers",
-    "url": "https://www.reddit.com/r/youtubers/.rss",
+    "source": "feed",
+    "url": "https://feed.infoq.com/",
     "type": "rss",
     "content_type": 2,
     "team": "dev",
