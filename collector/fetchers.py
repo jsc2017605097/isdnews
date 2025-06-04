@@ -6,6 +6,11 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from email.utils import parsedate_to_datetime
 
+import ssl
+import certifi
+
+from .utils import get_agentql_api_key_async
+
 from django.utils import timezone as django_timezone
 from django.db import models  # Thêm import này
 from asgiref.sync import sync_to_async
@@ -19,6 +24,8 @@ from bs4 import BeautifulSoup
 # Thêm import cho gọi API AI
 import json
 import os
+from django.db.models import Q
+from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +41,15 @@ if not ai_logger.handlers:
     file_handler.setFormatter(formatter)
     ai_logger.addHandler(file_handler)
 
+# SSL context chuẩn dùng certifi
+ssl_context = ssl.create_default_context(cafile=certifi.where())
+
 # Wrappers để gọi ORM an toàn trong async
 create_article = sync_to_async(Article.objects.get_or_create, thread_sensitive=True)
 update_source_last_fetched = sync_to_async(Source.save, thread_sensitive=True)
 create_fetch_log = sync_to_async(FetchLog.objects.create, thread_sensitive=True)
 create_ailog = sync_to_async(AILog.objects.create, thread_sensitive=True)
+
 
 class BaseFetcher:
     """Base class for all fetchers"""
@@ -82,13 +93,10 @@ class RSSFetcher(BaseFetcher):
     async def fetch(self) -> List[Dict[str, Any]]:
         articles = []
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
                 async with session.get(self.source.url) as response:
                     if response.status == 200:
                         xml_data = await response.text()
-                        # Fix: Thay thế root element <ss> bằng <rss> nếu có
-                        # xml_data = xml_data.replace('<ss ', '<rss ').replace('</ss>', '</rss>') # Hoàn tác thay đổi này vì root element đã đúng là <rss>
-
                         feed = feedparser.parse(xml_data)
 
                         for item in feed.entries:
@@ -117,7 +125,7 @@ class APIFetcher(BaseFetcher):
         headers = params.get('headers', {})
 
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
                 async with session.get(
                     self.source.url,
                     headers=headers,
@@ -152,25 +160,26 @@ class APIFetcher(BaseFetcher):
 
 class AgentQLFetcher(BaseFetcher):
     """Fetcher for static websites using AgentQL"""
-
+    
     async def fetch(self) -> List[Dict[str, Any]]:
         articles = []
         params = self.source.params or {}
 
-        if 'api_key' not in params or 'prompt' not in params:
-            raise ValueError("AgentQL fetcher requires 'api_key' and 'prompt' in params")
+        if 'prompt' not in params:
+            raise ValueError("AgentQL fetcher requires 'prompt' in params")
 
         try:
+            api_key = await get_agentql_api_key_async()
             payload = {
                 "url": self.source.url,
                 "prompt": params['prompt']
             }
             headers = {
                 "Content-Type": "application/json",
-                "X-API-Key": params['api_key']
+                "X-API-Key": api_key
             }
 
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
                 async with session.post(
                     "https://api.agentql.com/v1/query-data",
                     json=payload,
@@ -218,12 +227,11 @@ class FetcherFactory:
             raise ValueError(f"Unknown source type: {source.type}")
         return fetcher_class(source)
 
-# dau tay: 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
-# nguyendocuongbka: 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
+
 # Hàm gọi OpenRouter AI để dịch và tóm tắt nội dung sang tiếng Việt
 async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> str:
     from .utils import get_openrouter_api_key_async, get_teams_webhook_async
-    
+
     OPENROUTER_API_KEY = await get_openrouter_api_key_async()
     if not OPENROUTER_API_KEY:
         logger.error("OpenRouter API key not found in configuration")
@@ -231,10 +239,10 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
 
     OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
     logger.info(f"Using OpenRouter endpoint with key: {OPENROUTER_API_KEY[:10]}...")
-    
+
     # Webhook URL cho team tương ứng
     teams_webhook = await get_teams_webhook_async(ai_type)
-    
+
     # Tuỳ theo ai_type mà prompt có thể khác nhau
     if ai_type == "dev":
         system_prompt = "Bạn là trợ lý AI cho developer."
@@ -246,7 +254,7 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
         system_prompt = "Bạn là trợ lý AI."
 
     prompt = f"Hãy phân tích và đưa ra ý kiến về bài viết này và nói lại cho tôi một cách dễ hiểu bằng tiếng việt, kèm theo link, hình ảnh, ví dụ nếu có, nhớ đặt tiêu đề và kết luận (có dẫn nguồn từ {url}) cho câu trả lời của bạn (tôi yêu cầu nếu bạn không truy cập được url này thì hãy gửi lại link url cho tôi , cái này bắt buộc): {content}"
-    
+
     payload = {
         "model": "deepseek/deepseek-r1:free",
         "messages": [
@@ -254,7 +262,7 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
             {"role": "user", "content": prompt}
         ]
     }
-    
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -264,7 +272,7 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
 
     try:
         logger.info(f"[OpenRouter] Gửi prompt cho {url}: {prompt[:500]}...")
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
             async with session.post(OPENROUTER_ENDPOINT, headers=headers, json=payload, timeout=60) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
@@ -273,22 +281,49 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
 
                 data = await resp.json()
                 logger.info(f"[OpenRouter] Nhận response cho {url}: {str(data)[:500]}...")
-                
+
                 if data.get("choices") and data["choices"][0]["message"].get("content"):
                     result = data["choices"][0]["message"]["content"].strip()
                     logger.info(f"[OpenRouter] Nội dung dịch cho {url}: {result[:500]}...")
-                    await create_ailog(url=url, prompt=prompt, response=str(data), result=result, status='success', error_message='')
                     
+                    # Tạo hàm đồng bộ để gọi create_ailog
+                    def create_log_sync():
+                        return AILog.objects.create(
+                            url=url,
+                            prompt=prompt,
+                            response=str(data),
+                            result=result,
+                            status='success',
+                            error_message=''
+                        )
+                    
+                    # Gọi hàm đồng bộ trong thread riêng
+                    await asyncio.to_thread(create_log_sync)
+
                     if teams_webhook:
                         logger.info(f"[OpenRouter] Sending notification to team {ai_type} for URL: {url}")
                         await notify_teams(teams_webhook, f"Bài viết mới cho team {ai_type}", result, url)
                     else:
                         logger.warning(f"[OpenRouter] No Teams webhook found for team {ai_type}, skipping notification")
-                    
+
                     return result
                 else:
                     logger.warning(f"[OpenRouter] Không nhận được nội dung dịch cho {url}, trả về content gốc.")
-                    await create_ailog(url=url, prompt=prompt, response=str(data), result=content, status='error', error_message='No content from AI')
+                    
+                    # Tạo hàm đồng bộ để gọi create_ailog
+                    def create_error_log_sync():
+                        return AILog.objects.create(
+                            url=url,
+                            prompt=prompt,
+                            response=str(data),
+                            result=content,
+                            status='error',
+                            error_message='No content from AI'
+                        )
+                    
+                    # Gọi hàm đồng bộ trong thread riêng
+                    await asyncio.to_thread(create_error_log_sync)
+                    
                     return content
 
     except Exception as e:
@@ -297,14 +332,28 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
             error_response = await resp.text() if 'resp' in locals() else ''
         except Exception:
             error_response = ''
-        await create_ailog(url=url, prompt=prompt, response=error_response, result=content, status='error', error_message=str(e))
+            
+        # Tạo hàm đồng bộ để gọi create_ailog
+        def create_exception_log_sync():
+            return AILog.objects.create(
+                url=url,
+                prompt=prompt,
+                response=error_response,
+                result=content,
+                status='error',
+                error_message=str(e)
+            )
+        
+        # Gọi hàm đồng bộ trong thread riêng
+        await asyncio.to_thread(create_exception_log_sync)
+        
         return content
 
 
 async def fetch_article_detail(url: str) -> Dict[str, str]:
     """Cào nội dung chi tiết và ảnh đại diện từ url bài viết, sau đó gửi lên AI để dịch/tóm tắt"""
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
             async with session.get(url, timeout=15) as resp:
                 if resp.status != 200:
                     return {"content": "", "thumbnail": ""}
@@ -372,7 +421,6 @@ class DataCollector:
             articles_data = await fetcher.fetch()
 
             # Lọc lấy tối đa 5 bài viết mới (chưa có trong Article)
-            from .models import Article
             existing_urls = set(await sync_to_async(list)(Article.objects.filter(url__in=[a['url'] for a in articles_data]).values_list('url', flat=True)))
             new_articles = [a for a in articles_data if a['url'] not in existing_urls][:5]
 
@@ -422,17 +470,21 @@ class DataCollector:
 
         return log_data
 
-    async def collect_all_active_sources(self):
+    async def collect_all_active_sources(self, team_code: Optional[str] = None):
         now = django_timezone.now()
-        # Lấy các nguồn active và kiểm tra điều kiện thu thập
-        active_sources = await sync_to_async(list)(
-            Source.objects.filter(is_active=True).filter(
-                # Lấy các nguồn có force_collect=True hoặc đã đến thời gian thu thập
-                models.Q(force_collect=True) |
-                models.Q(last_fetched__isnull=True) |
-                models.Q(last_fetched__lte=now - models.F('fetch_interval') * timedelta(seconds=1))
-            )
+        queryset = Source.objects.filter(is_active=True)
+
+        if team_code:
+            queryset = queryset.filter(team__code=team_code)
+
+        # Lọc các nguồn có force_collect=True hoặc đã đến thời gian thu thập
+        queryset = queryset.filter(
+            models.Q(force_collect=True) |
+            models.Q(last_fetched__isnull=True) |
+            models.Q(last_fetched__lte=now - models.F('fetch_interval') * timedelta(seconds=1))
         )
+
+        active_sources = await sync_to_async(list)(queryset)
 
         if active_sources:
             tasks = [self.collect_from_source(src) for src in active_sources]
@@ -443,6 +495,7 @@ class DataCollector:
             return results
         return []
 
+
 async def notify_teams(webhook_url: str, title: str, content: str, url: str = None):
     """Gửi thông báo đến Microsoft Teams thông qua webhook"""
     logger.info(f"[Teams] Preparing to send notification...")
@@ -450,11 +503,11 @@ async def notify_teams(webhook_url: str, title: str, content: str, url: str = No
     logger.info(f"[Teams] Title: {title}")
     logger.info(f"[Teams] URL: {url}")
     logger.info(f"[Teams] Content length: {len(content)} characters")
-    
+
     if not webhook_url:
         logger.warning("[Teams] No webhook URL provided, skipping notification")
         return
-        
+
     try:
         card = {
             "@type": "MessageCard",
@@ -467,9 +520,9 @@ async def notify_teams(webhook_url: str, title: str, content: str, url: str = No
                 "text": content  # Gửi toàn bộ nội dung không cắt ngắn
             }]
         }
-        
+
         logger.info("[Teams] Sending request to Teams webhook...")
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
             async with session.post(webhook_url, json=card) as resp:
                 response_text = await resp.text()
                 if resp.status == 200:
@@ -478,7 +531,7 @@ async def notify_teams(webhook_url: str, title: str, content: str, url: str = No
                 else:
                     logger.error(f"[Teams] Error sending notification. Status: {resp.status}")
                     logger.error(f"[Teams] Error response: {response_text}")
-                    
+
     except Exception as e:
         logger.error(f"[Teams] Failed to send notification: {str(e)}")
         logger.exception("[Teams] Full exception:")

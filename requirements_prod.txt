@@ -1,0 +1,9 @@
+Django==5.2.1
+celery
+django-celery-beat
+redis
+gunicorn
+psycopg2-binary  # PostgreSQL adapter
+python-dotenv
+whitenoise  # for serving static files
+django-cors-headers

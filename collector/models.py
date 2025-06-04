@@ -44,9 +44,19 @@ class Source(models.Model):
     
     def clean(self):
         super().clean()
+        
+        # Set default params for static type
+        if self.type == 'static':
+            if not self.params:
+                self.params = {
+                    "prompt": "hãy lấy các url liên quan đến [nội dung bạn cần lấy] sau đó gửi lại cho tôi , yêu cầu dữ liệu trả về chỉ là 1 mảng các url, không được sai format như tôi yêu cầu"
+                }
+            elif 'prompt' not in self.params:
+                self.params['prompt'] = "hãy lấy các url liên quan đến [nội dung bạn cần lấy] sau đó gửi lại cho tôi , yêu cầu dữ liệu trả về chỉ là 1 mảng các url, không được sai format như tôi yêu cầu"
+        
+        # Validate params structure
         if self.params:
             try:
-                # Validate JSON structure based on type
                 if self.type == 'api' and 'headers' in self.params:
                     if not isinstance(self.params['headers'], dict):
                         raise ValidationError({'params': 'API headers must be a dictionary'})
@@ -190,7 +200,8 @@ class SystemConfig(models.Model):
     """Model lưu trữ cấu hình hệ thống"""
     KEY_CHOICES = [
         ('openrouter_api_key', 'OpenRouter API Key'),
-        ('teams_webhook', 'Teams Webhook URL')
+        ('teams_webhook', 'Teams Webhook URL'),
+        ('agentql_api_key', 'AgentQL API Key')
     ]
 
     KEY_TYPES = [
@@ -212,7 +223,7 @@ class SystemConfig(models.Model):
 
     def clean(self):
         super().clean()
-        if self.key == 'openrouter_api_key':
+        if self.key in ['openrouter_api_key', 'agentql_api_key']:
             self.key_type = 'api_key'
             self.team = None
         else:  # teams_webhook

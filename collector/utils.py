@@ -2,88 +2,79 @@ from typing import Optional
 from .models import SystemConfig, Team
 from django.core.cache import cache
 import logging
-from django.core.cache import cache
-from .models import SystemConfig
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 from asgiref.sync import sync_to_async
 
+
+# Helper sync functions để gọi trong async context
+def get_system_config_sync(key: str, team: Optional[str] = None):
+    try:
+        query = SystemConfig.objects.filter(key=key, is_active=True)
+        if team:
+            query = query.filter(team=team)
+        return query.first()
+    except Exception as e:
+        logger.error(f"Error getting system config {key}: {e}")
+        return None
+
+
 async def get_system_config_async(key: str, team: Optional[str] = None, cache_timeout: int = 300) -> Optional[str]:
-    """Async version of get_system_config"""
     cache_key = f"system_config:{key}:{team}" if team else f"system_config:{key}"
     
-    # Try cache first
     value = cache.get(cache_key)
     if value is not None:
         return value
         
-    # If not in cache, query from database
-    try:
-        query = SystemConfig.objects.filter(key=key, is_active=True)
-        if team:
-            query = query.filter(team=team)
-        
-        config = await sync_to_async(query.first)()
-        if config:
-            value = config.value.strip() if config.value else ''
-            cache.set(cache_key, value, cache_timeout)
-            return value
-            
-    except Exception as e:
-        logger.error(f"Error getting system config {key}: {e}")
-    
-    return None
-
-def get_system_config(key: str, team: Optional[str] = None, cache_timeout: int = 300) -> Optional[str]:
-    """
-    Lấy giá trị cấu hình từ SystemConfig model.
-    Có cache để tránh query database quá nhiều.
-    
-    Args:
-        key: Khóa cấu hình cần lấy
-        team: Team cụ thể (nếu có)
-        cache_timeout: Thời gian cache (giây)
-    """
-    cache_key = f"system_config:{key}:{team}" if team else f"system_config:{key}"
-    
-    # Thử lấy từ cache trước
-    value = cache.get(cache_key)
-    if value is not None:
-        return value
-        
-    # Nếu không có trong cache, query từ database
-    try:
-        query = SystemConfig.objects.filter(key=key, is_active=True)
-        if team:
-            query = query.filter(team=team)
-        
-        config = query.first()
-        if config:            # Strip whitespace from value to avoid auth issues
-            value = config.value.strip() if config.value else ''
-            cache.set(cache_key, value, cache_timeout)
-            return value
-            
-    except Exception as e:
-        logger.error(f"Error getting system config {key}: {e}")
-    
-    return None
-
-def get_config_value(key: str, team: str = None) -> str:
-    """
-    Lấy giá trị cấu hình từ cache hoặc database
-    """
-    cache_key = f"system_config:{key}:{team}" if team else f"system_config:{key}"
-    value = cache.get(cache_key)
-    
-    if value is None:
+    # Tạo hàm đồng bộ để lấy config
+    def get_config_sync():
         try:
             query = SystemConfig.objects.filter(key=key, is_active=True)
             if team:
                 query = query.filter(team=team)
             config = query.first()
+            if config:
+                value = config.value.strip() if config.value else ''
+                cache.set(cache_key, value, cache_timeout)
+                return value
+            return None
+        except Exception as e:
+            logger.error(f"Error getting system config {key}: {e}")
+            return None
+
+    # Gọi hàm đồng bộ trong thread riêng
+    return await asyncio.to_thread(get_config_sync)
+
+
+def get_system_config(key: str, team: Optional[str] = None, cache_timeout: int = 300) -> Optional[str]:
+    cache_key = f"system_config:{key}:{team}" if team else f"system_config:{key}"
+    
+    value = cache.get(cache_key)
+    if value is not None:
+        return value
+        
+    try:
+        config = get_system_config_sync(key, team)
+        if config:
+            value = config.value.strip() if config.value else ''
+            cache.set(cache_key, value, cache_timeout)
+            return value
+    except Exception as e:
+        logger.error(f"Error getting system config {key}: {e}")
+    
+    return None
+
+
+def get_config_value(key: str, team: str = None) -> str:
+    cache_key = f"system_config:{key}:{team}" if team else f"system_config:{key}"
+    value = cache.get(cache_key)
+    
+    if value is None:
+        try:
+            config = get_system_config_sync(key, team)
             value = config.value if config else None
-            # Cache giá trị trong 5 phút
             cache.set(cache_key, value, 300)
         except Exception as e:
             logger.error(f"Error getting config {key}: {e}")
@@ -91,14 +82,10 @@ def get_config_value(key: str, team: str = None) -> str:
             
     return value
 
-def get_teams_webhook(team_code: str) -> str:
-    """
-    Lấy Teams webhook URL cho một team cụ thể
-    """
+
+def get_teams_webhook_sync(team_code: str) -> Optional[str]:
     try:
-        # Tìm team theo id thay vì code
         team = Team.objects.get(code=team_code, is_active=True)
-        # Lấy webhook URL cho team đó
         config = SystemConfig.objects.filter(
             key='teams_webhook',
             team=team,
@@ -106,58 +93,77 @@ def get_teams_webhook(team_code: str) -> str:
         ).first()
         return config.value if config else None
     except Team.DoesNotExist:
-        logger.error(f"Team with id {team_code} not found")
+        logger.error(f"Team with code {team_code} not found")
         return None
     except Exception as e:
         logger.error(f"Error getting teams webhook: {str(e)}")
         return None
 
-async def get_teams_webhook_async(team_code: str) -> str:
-    """
-    Lấy Teams webhook URL cho một team cụ thể (async version)
-    """
+
+async def get_teams_webhook_async(team_code: str) -> Optional[str]:
     try:
-        # Tìm team theo id thay vì code
-        team = await sync_to_async(Team.objects.get)(code=team_code, is_active=True)
-        # Lấy webhook URL cho team đó
-        # Sử dụng sync_to_async để chạy toàn bộ truy vấn đồng bộ trong async context
-        config = await sync_to_async(lambda: SystemConfig.objects.filter(
-            key='teams_webhook',
-            team=team,
-            is_active=True
-        ).first())()
-        return config.value if config else None
-    except Team.DoesNotExist:
-        logger.error(f"Team with code {team_code} not found") # Sửa lại log cho chính xác
-        return None
+        # Tạo hàm đồng bộ để lấy webhook
+        def get_webhook_sync():
+            try:
+                team = Team.objects.get(code=team_code, is_active=True)
+                config = SystemConfig.objects.filter(
+                    key='teams_webhook',
+                    team=team,
+                    is_active=True
+                ).first()
+                return config.value if config else None
+            except Team.DoesNotExist:
+                logger.error(f"Team with code {team_code} not found")
+                return None
+            except Exception as e:
+                logger.error(f"Error getting teams webhook: {str(e)}")
+                return None
+
+        # Gọi hàm đồng bộ trong thread riêng
+        return await asyncio.to_thread(get_webhook_sync)
     except Exception as e:
-        logger.error(f"Error getting teams webhook: {str(e)}")
+        logger.error(f"Error in get_teams_webhook_async: {str(e)}")
         return None
+
 
 async def get_openrouter_api_key_async() -> str:
-    """Get OpenRouter API key from system config (async version)"""
     key = await get_system_config_async('openrouter_api_key')
     if not key:
         logger.error("OpenRouter API key not configured")
         return ""
     
-    key = key.strip()  # Remove any whitespace
+    key = key.strip()
     if not key.startswith('sk-or-'):
         logger.error(f"Invalid OpenRouter API key format: {key[:10]}...")
         return ""
         
     return key
 
+
 def get_openrouter_api_key() -> str:
-    """Get OpenRouter API key from system config (sync version)"""
     key = get_system_config('openrouter_api_key')
     if not key:
         logger.error("OpenRouter API key not configured")
         return ""
     
-    key = key.strip()  # Remove any whitespace
+    key = key.strip()
     if not key.startswith('sk-or-'):
         logger.error(f"Invalid OpenRouter API key format: {key[:10]}...")
         return ""
         
     return key
+
+
+async def get_agentql_api_key_async() -> str:
+    """Get AgentQL API key from system config"""
+    value = await get_system_config_async('agentql_api_key')
+    if not value:
+        raise Exception('AgentQL API key not configured')
+    return value
+
+def get_agentql_api_key() -> str:
+    """Sync version of get_agentql_api_key"""
+    value = get_system_config('agentql_api_key')
+    if not value:
+        raise Exception('AgentQL API key not configured')
+    return value

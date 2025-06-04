@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.contrib import messages
-from collector.task import collect_data_from_all_sources
+from collector.tasks import collect_data_from_all_sources
 from .models import Source, FetchLog, AILog, JobConfig, Article, SystemConfig, Team
 
 @admin.register(Team)
@@ -33,6 +33,20 @@ class SourceAdmin(admin.ModelAdmin):
         self.message_user(request, "Data collection job has been queued!", messages.SUCCESS)
     run_collect_all_job.short_description = "Run Data Collection (Celery)"
     
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Chỉ áp dụng cho form tạo mới
+            form.base_fields['params'].initial = {
+                "prompt": "hãy lấy các url liên quan đến [nội dung bạn cần lấy] sau đó gửi lại cho tôi , yêu cầu dữ liệu trả về chỉ là 1 mảng các url, không được sai format như tôi yêu cầu"
+            }
+        return form
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        field = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == "type":
+            field.widget.attrs['onchange'] = 'handleTypeChange(this);'
+        return field
+
     class Meta:
         model = Source
         app_label = "Data Source Management"
@@ -177,12 +191,13 @@ def get_app_list(self, request, app_label=None):
     for app in app_list:
         if app['app_label'] == 'collector':
             app['models'].sort(key=lambda x: {
-                'Source': 1,
-                'Article': 2,
-                'SystemConfig': 3,
+                'Team': 1,
+                'Source': 2,
+                'Article': 3,
                 'FetchLog': 4,
                 'AILog': 5,
                 'JobConfig': 6,
+                'SystemConfig': 7,
             }.get(x['object_name'], 10))
     return app_list
 
