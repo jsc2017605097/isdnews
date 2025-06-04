@@ -9,6 +9,8 @@ from email.utils import parsedate_to_datetime
 import ssl
 import certifi
 
+from .utils import get_agentql_api_key_async
+
 from django.utils import timezone as django_timezone
 from django.db import models  # Thêm import này
 from asgiref.sync import sync_to_async
@@ -158,22 +160,23 @@ class APIFetcher(BaseFetcher):
 
 class AgentQLFetcher(BaseFetcher):
     """Fetcher for static websites using AgentQL"""
-
+    
     async def fetch(self) -> List[Dict[str, Any]]:
         articles = []
         params = self.source.params or {}
 
-        if 'api_key' not in params or 'prompt' not in params:
-            raise ValueError("AgentQL fetcher requires 'api_key' and 'prompt' in params")
+        if 'prompt' not in params:
+            raise ValueError("AgentQL fetcher requires 'prompt' in params")
 
         try:
+            api_key = await get_agentql_api_key_async()
             payload = {
                 "url": self.source.url,
                 "prompt": params['prompt']
             }
             headers = {
                 "Content-Type": "application/json",
-                "X-API-Key": params['api_key']
+                "X-API-Key": api_key
             }
 
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:

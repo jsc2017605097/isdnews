@@ -23,9 +23,7 @@
     "type": "static",
     "content_type": 1,
     "team": "ba",
-    "fetch_interval": 7200,
-    "params": {
-      "api_key": "your_agentql_api_key_here",
+    "fetch_interval": 7200,    "params": {
       "prompt": "hãy lấy các url liên quan đến tin tức kinh tế, bitcoin, giá vàng, kinh tế vĩ mô thế giới, kinh tế việt nam, sau đó gửi lại cho tôi , yêu cầu dữ liệu trả về chỉ là 1 mảng các url, không được sai format như tôi yêu cầu"
     }
   },

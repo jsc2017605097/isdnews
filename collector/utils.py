@@ -152,3 +152,18 @@ def get_openrouter_api_key() -> str:
         return ""
         
     return key
+
+
+async def get_agentql_api_key_async() -> str:
+    """Get AgentQL API key from system config"""
+    value = await get_system_config_async('agentql_api_key')
+    if not value:
+        raise Exception('AgentQL API key not configured')
+    return value
+
+def get_agentql_api_key() -> str:
+    """Sync version of get_agentql_api_key"""
+    value = get_system_config('agentql_api_key')
+    if not value:
+        raise Exception('AgentQL API key not configured')
+    return value
