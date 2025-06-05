@@ -27,6 +27,9 @@ import os
 from django.db.models import Q
 from django.db import transaction
 
+# Thêm import cho Playwright
+from playwright.async_api import async_playwright
+
 logger = logging.getLogger(__name__)
 
 # Thiết lập logger lưu file riêng cho AI/thumbnail
@@ -351,16 +354,21 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
 
 
 async def fetch_article_detail(url: str) -> Dict[str, str]:
-    """Cào nội dung chi tiết và ảnh đại diện từ url bài viết, sau đó gửi lên AI để dịch/tóm tắt"""
+    """
+    Dùng Playwright để render trang có JavaScript, lấy nội dung HTML đầy đủ,
+    sau đó dùng BeautifulSoup để xử lý tiếp.
+    """
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0 Safari/537.36"
-        }
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
-            async with session.get(url, headers=headers, timeout=15) as resp:
-                if resp.status != 200:
-                    return {"content": "", "thumbnail": ""}
-                html = await resp.text()
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto(url, wait_until='networkidle')
+
+            # Lấy HTML sau khi render xong
+            html = await page.content()
+            await browser.close()
 
         soup = BeautifulSoup(html, "html.parser")
         for sel in ["script", "style", "footer", ".ads", ".comments", ".related"]:
