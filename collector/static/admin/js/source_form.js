@@ -7,10 +7,3 @@ function handleTypeChange(selectElement) {
         paramsField.value = JSON.stringify(defaultParams, null, 2);
     }
 }
-
-document.addEventListener('DOMContentLoaded', function() {
-    var typeField = document.getElementById('id_type');
-    if (typeField && typeField.value === 'static') {
-        handleTypeChange(typeField);
-    }
-});
