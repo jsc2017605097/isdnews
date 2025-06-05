@@ -253,7 +253,7 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
     else:
         system_prompt = "Bạn là trợ lý AI."
 
-    prompt = f"Hãy phân tích và đưa ra ý kiến về bài viết này và nói lại cho tôi một cách dễ hiểu bằng tiếng việt, kèm theo link, ví dụ nếu có, nhớ đặt tiêu đề và kết luận (có dẫn nguồn từ {url}) cho câu trả lời của bạn (tôi yêu cầu nếu nội dung tôi gửi cho bạn bị lỗi hoặc không có thì hãy gửi lại link url cho tôi , cái này bắt buộc): {content}"
+    prompt = f"Dưới đây là nội dung thô tôi cào từ trang web, Hãy phân tích và đưa ra ý kiến về nội dung này và nói lại cho tôi một cách dễ hiểu bằng tiếng việt,ví dụ nếu có, nhớ đặt tiêu đề và kết luận (có dẫn nguồn từ {url}) cho câu trả lời của bạn (tôi yêu cầu nếu nội dung tôi gửi cho bạn mà trống thì hãy gửi lại cho tôi với nội dung, Tôi không thể phân tích nội dung từ nguồn: {url}, cái này bắt buộc): {content}"
 
     payload = {
         "model": "deepseek/deepseek-r1:free",
