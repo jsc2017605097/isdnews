@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-7hzu-7mukz1)ryo*_wa1k)hh^m^k*npzpua2xkg866^p&lkid6
 DEBUG = True
 
 ALLOWED_HOSTS = ['isdnews.telehub.vn']
-
+CSRF_TRUSTED_ORIGINS = ['https://isdnews.telehub.vn']
 # ...existing code...
 
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
