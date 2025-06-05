@@ -25,17 +25,17 @@ STATICFILES_DIRS = [
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'your_db_name',
-        'USER': 'your_db_user',
-        'PASSWORD': 'your_db_password',
-        'HOST': 'your_db_host',
-        'PORT': '5432',
+        'NAME': 'railway',
+        'USER': 'postgres',
+        'PASSWORD': 'nhkXjeVstjSSbkvgMuBcXumyOYqUXrcL',
+        'HOST': 'maglev.proxy.rlwy.net',
+        'PORT': '58654',
     }
 }
 
 # Celery configuration cho production
-CELERY_BROKER_URL = 'redis://production-redis-host:6379/0'
-CELERY_RESULT_BACKEND = 'redis://production-redis-host:6379/0'
+CELERY_BROKER_URL = 'redis://default:4x5g4ml4ajnj4HehdDIzZ77z7dNGOtPM@redis-17407.c275.us-east-1-4.ec2.redns.redis-cloud.com:17407/0'
+CELERY_RESULT_BACKEND = 'redis://default:4x5g4ml4ajnj4HehdDIzZ77z7dNGOtPM@redis-17407.c275.us-east-1-4.ec2.redns.redis-cloud.com:17407/0'
 
 # Logging
 LOGGING = {
