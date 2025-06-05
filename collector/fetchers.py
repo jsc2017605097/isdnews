@@ -353,11 +353,15 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
 async def fetch_article_detail(url: str) -> Dict[str, str]:
     """Cào nội dung chi tiết và ảnh đại diện từ url bài viết, sau đó gửi lên AI để dịch/tóm tắt"""
     try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0 Safari/537.36"
+        }
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
-            async with session.get(url, timeout=15) as resp:
+            async with session.get(url, headers=headers, timeout=15) as resp:
                 if resp.status != 200:
                     return {"content": "", "thumbnail": ""}
                 html = await resp.text()
+
         soup = BeautifulSoup(html, "html.parser")
         for sel in ["script", "style", "footer", ".ads", ".comments", ".related"]:
             for tag in soup.select(sel):
@@ -369,6 +373,7 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
                 break
         if not root:
             root = soup
+
         title = soup.title.string.strip() if soup.title else ""
         meta = ""
         meta_tag = soup.find("meta", attrs={"name": "description"})
@@ -377,10 +382,19 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
         paragraphs = [p.get_text(strip=True) for p in root.find_all("p")]
         raw_content = f"{title}\n\n{meta}\n\n" + "\n".join(paragraphs)
         raw_content = raw_content[:4000]
+
+        logger.info(f"[fetch_article_detail] Raw content length: {len(raw_content)}")
+        logger.debug(f"[fetch_article_detail] Raw content snippet: {raw_content[:500]}")
+
+        if len(raw_content.strip()) < 300:
+            logger.warning(f"[fetch_article_detail] Raw content quá ngắn ({len(raw_content)}), bỏ qua gọi AI cho url: {url}")
+            return {"content": "", "thumbnail": ""}
+
         # Gọi AI để dịch/tóm tắt nội dung sang tiếng Việt dễ hiểu
         ai_content = await call_openrouter_ai(raw_content, url)
         ai_logger.info(f"AI summary for {url}: {ai_content[:200]}...")
-        # Ảnh đại diện: ưu tiên meta og:image, sau đó đến ảnh đầu tiên trong root, cuối cùng là ảnh đầu tiên toàn trang
+
+        # Lấy ảnh thumbnail
         thumbnail = ""
         ogimg = soup.find("meta", property="og:image")
         if ogimg and ogimg.get("content"):
@@ -396,7 +410,9 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
                 if img_tag2 and img_tag2.get("src"):
                     thumbnail = img_tag2["src"]
                     ai_logger.info(f"Thumbnail first img in page for {url}: {thumbnail}")
+
         return {"content": ai_content, "thumbnail": thumbnail}
+
     except Exception as e:
         logger.warning(f"Lỗi cào chi tiết {url}: {e}")
         ai_logger.error(f"Lỗi cào chi tiết {url}: {e}")
