@@ -2,7 +2,7 @@ from .settings import *
 
 DEBUG = False
 ALLOWED_HOSTS = ['isdnews.telehub.vn']  # Thay thế bằng domain thực tế của bạn
-CSRF_TRUSTED_ORIGINS = ['http://isdnews.telehub.vn']
+CSRF_TRUSTED_ORIGINS = ['https://isdnews.telehub.vn']
 # Security settings
 SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True
