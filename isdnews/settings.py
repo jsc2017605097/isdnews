@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-7hzu-7mukz1)ryo*_wa1k)hh^m^k*npzpua2xkg866^p&lkid6
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['isdnews.telehub.vn']
 
 # ...existing code...
 
