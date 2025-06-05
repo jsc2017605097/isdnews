@@ -45,7 +45,7 @@ LOGGING = {
         'file': {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': '/var/log/django/error.log',
+            'filename': '/home/bsvdev/var/log/django/error.log',
         },
         'console': {
             'level': 'ERROR',
