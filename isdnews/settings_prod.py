@@ -21,18 +21,6 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "collector/static"),
 ]
 
-# Database cho production (PostgreSQL recommended)
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'railway',
-        'USER': 'postgres',
-        'PASSWORD': 'nhkXjeVstjSSbkvgMuBcXumyOYqUXrcL',
-        'HOST': 'maglev.proxy.rlwy.net',
-        'PORT': '58654',
-    }
-}
-
 # Celery configuration cho production
 CELERY_BROKER_URL = 'redis://default:4x5g4ml4ajnj4HehdDIzZ77z7dNGOtPM@redis-17407.c275.us-east-1-4.ec2.redns.redis-cloud.com:17407/0'
 CELERY_RESULT_BACKEND = 'redis://default:4x5g4ml4ajnj4HehdDIzZ77z7dNGOtPM@redis-17407.c275.us-east-1-4.ec2.redns.redis-cloud.com:17407/0'
