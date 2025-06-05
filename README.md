@@ -149,10 +149,12 @@ CELERY_BEAT_SCHEDULE = {
 ### 3. Chạy Celery
 ```bash
 # Terminal 1: Celery Worker
-celery -A isdnews worker --loglevel=info
+celery -A isdnews worker --loglevel=info --detach --logfile=./logs/celery_worker.log
+
 #use on window
 celery -A isdnews worker -l info -P solo 
 # Terminal 2: Celery Beat (cho periodic tasks)
+celery -A isdnews beat -l info --detach --logfile=./logs/celery_beat.log
 celery -A isdnews beat --loglevel=info
 ```
 
