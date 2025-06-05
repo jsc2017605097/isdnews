@@ -1,7 +1,7 @@
 from .settings import *
 
 DEBUG = False
-ALLOWED_HOSTS = ['your-domain.com']  # Thay thế bằng domain thực tế của bạn
+ALLOWED_HOSTS = ['isdnews.telehub.vn']  # Thay thế bằng domain thực tế của bạn
 
 # Security settings
 SECURE_SSL_REDIRECT = True
