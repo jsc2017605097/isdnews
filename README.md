@@ -157,7 +157,8 @@ celery -A isdnews worker -l info -P solo
 celery -A isdnews beat -l info --detach --logfile=./logs/celery_beat.log
 celery -A isdnews beat --loglevel=info
 ```
-
+<!-- static production -->
+python manage.py collectstatic --noinput
 ## Monitoring và Logs
 
 ### 1. Xem logs thu thập
