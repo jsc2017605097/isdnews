@@ -145,7 +145,7 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 ```
-
+source venv/bin/activate
 ### 3. Chạy Celery
 ```bash
 # Terminal 1: Celery Worker

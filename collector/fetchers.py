@@ -354,67 +354,99 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
 
 
 async def fetch_article_detail(url: str) -> Dict[str, str]:
+    """
+    Dùng Playwright để render trang có JavaScript, đợi load hết nội dung rồi lấy HTML,
+    sau đó dùng BeautifulSoup để xử lý trích xuất nội dung và ảnh thumbnail.
+    """
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
-            logger.info(f"[fetch_article_detail] Navigating to {url}")
-            await page.goto(url, wait_until='networkidle')
-            await page.wait_for_timeout(2000)  # đợi thêm 2s để JS chạy hết
+            logger.info(f"[fetch_article_detail] Đang truy cập URL: {url}")
+            
+            # Truy cập trang
+            await page.goto(url)
+            
+            # Đợi trạng thái networkidle (không request mới)
+            await page.wait_for_load_state("networkidle")
+            
+            # Đợi phần tử chính xuất hiện (thay 'article' bằng selector phù hợp nếu cần)
+            try:
+                await page.wait_for_selector('article', timeout=7000)
+                logger.info(f"[fetch_article_detail] Selector 'article' đã xuất hiện")
+            except Exception:
+                logger.warning(f"[fetch_article_detail] Không tìm thấy selector 'article' trong trang")
+            
+            # Đợi thêm 2 giây cho chắc chắn mọi JS đã chạy xong
+            await page.wait_for_timeout(2000)
+            
+            # Lấy HTML sau khi render xong
             html = await page.content()
             await browser.close()
 
+        # Xử lý HTML với BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
+        
+        # Loại bỏ tag không cần thiết
         for sel in ["script", "style", "footer", ".ads", ".comments", ".related"]:
             for tag in soup.select(sel):
                 tag.decompose()
+
+        # Tìm phần nội dung chính (có thể mở rộng thêm selector nếu cần)
+        selectors = ["main", "article", "#content", ".post", ".entry", ".article-body", ".content"]
         root = None
-        for sel in ["main", "article", "#content", ".post", ".entry"]:
+        for sel in selectors:
             root = soup.select_one(sel)
             if root:
+                logger.info(f"[fetch_article_detail] Tìm thấy selector nội dung chính: {sel}")
                 break
         if not root:
+            logger.warning("[fetch_article_detail] Không tìm thấy selector nội dung chính, dùng toàn bộ trang")
             root = soup
 
+        # Lấy title và meta description
         title = soup.title.string.strip() if soup.title else ""
         meta_tag = soup.find("meta", attrs={"name": "description"})
         meta = meta_tag["content"].strip() if meta_tag and meta_tag.get("content") else ""
 
+        # Lấy text các đoạn <p>
         paragraphs = [p.get_text(strip=True) for p in root.find_all("p")]
         raw_content = f"{title}\n\n{meta}\n\n" + "\n".join(paragraphs)
         raw_content = raw_content[:4000]
 
-        logger.info(f"[fetch_article_detail] Raw content length: {len(raw_content)}")
-        logger.debug(f"[fetch_article_detail] Raw content snippet: {raw_content[:500]}")
+        logger.info(f"[fetch_article_detail] Độ dài nội dung thô: {len(raw_content)}")
+        logger.debug(f"[fetch_article_detail] Đoạn nội dung thô: {raw_content[:500]}")
 
         if len(raw_content.strip()) < 300:
-            logger.warning(f"[fetch_article_detail] Raw content too short ({len(raw_content)}) for url {url}")
+            logger.warning(f"[fetch_article_detail] Nội dung quá ngắn ({len(raw_content)}) bỏ qua url {url}")
             return {"content": "", "thumbnail": ""}
 
+        # Gọi AI tóm tắt
         ai_content = await call_openrouter_ai(raw_content, url)
-        ai_logger.info(f"AI summary for {url}: {ai_content[:200]}...")
+        ai_logger.info(f"AI tóm tắt cho {url}: {ai_content[:200]}...")
 
+        # Lấy thumbnail ưu tiên meta og:image, sau đó ảnh đầu tiên trong nội dung
         thumbnail = ""
         ogimg = soup.find("meta", property="og:image")
         if ogimg and ogimg.get("content"):
             thumbnail = ogimg["content"]
-            ai_logger.info(f"Thumbnail og:image for {url}: {thumbnail}")
+            ai_logger.info(f"Thumbnail og:image cho {url}: {thumbnail}")
         else:
             img_tag = root.find("img") if root else None
             if img_tag and img_tag.get("src"):
                 thumbnail = img_tag["src"]
-                ai_logger.info(f"Thumbnail first img in root for {url}: {thumbnail}")
+                ai_logger.info(f"Thumbnail ảnh đầu tiên trong nội dung cho {url}: {thumbnail}")
             else:
                 img_tag2 = soup.find("img")
                 if img_tag2 and img_tag2.get("src"):
                     thumbnail = img_tag2["src"]
-                    ai_logger.info(f"Thumbnail first img in page for {url}: {thumbnail}")
+                    ai_logger.info(f"Thumbnail ảnh đầu tiên trong trang cho {url}: {thumbnail}")
 
         return {"content": ai_content, "thumbnail": thumbnail}
 
     except Exception as e:
-        logger.warning(f"fetch_article_detail error for {url}: {e}")
-        ai_logger.error(f"fetch_article_detail error for {url}: {e}")
+        logger.error(f"Lỗi fetch_article_detail cho {url}: {e}")
+        ai_logger.error(f"Lỗi fetch_article_detail cho {url}: {e}")
         return {"content": "", "thumbnail": ""}
 
 class DataCollector:
