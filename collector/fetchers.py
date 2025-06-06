@@ -28,7 +28,7 @@ from django.db.models import Q
 from django.db import transaction
 
 # Thêm import cho Playwright
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -355,30 +355,40 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
 
 async def fetch_article_detail(url: str) -> Dict[str, str]:
     """
-    Dùng Playwright để render trang có JavaScript, đợi load hết nội dung rồi lấy HTML,
-    sau đó dùng BeautifulSoup để trích xuất toàn bộ văn bản (text-only) và ảnh thumbnail.
-    Không gọi AI, mà trả về thẳng raw_content.
+    Dùng Playwright để render trang có JavaScript, đợi load (có bắt timeout),
+    sau đó dùng BeautifulSoup trích xuất toàn bộ văn bản (text-only) và ảnh thumbnail.
+    Bắt riêng TimeoutError để không dừng khi quá thời gian chờ.
     """
     try:
-        # 1. Mở Playwright, đi đến URL và đợi load xong
+        # 1. Mở Playwright, đi đến URL và đợi load xong (timeout tăng lên 60000ms)
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             logger.info(f"[fetch_article_detail] Đang truy cập URL: {url}")
             
-            await page.goto(url)
-            await page.wait_for_load_state("networkidle")
+            try:
+                #  Tăng timeout lên 60 giây
+                await page.goto(url, timeout=60000)
+            except PlaywrightTimeoutError:
+                logger.warning(f"[fetch_article_detail] Timeout khi page.goto cho {url}, dùng HTML tạm thời.")
             
-            # Đợi thêm selector 'article' để chắc chắn nội dung đã xuất hiện (nếu có)
+            try:
+                # Đợi networkidle, vẫn giữ timeout mặc định (30 giây) vì phần lớn đã load ở trên
+                await page.wait_for_load_state("networkidle")
+            except PlaywrightTimeoutError:
+                logger.warning(f"[fetch_article_detail] Timeout khi wait_for_load_state cho {url}, tiếp tục với HTML hiện tại.")
+
+            # Đợi thêm selector 'article' (nếu có), timeout 7000ms
             try:
                 await page.wait_for_selector('article', timeout=7000)
                 logger.info(f"[fetch_article_detail] Selector 'article' đã xuất hiện")
-            except Exception:
-                logger.warning(f"[fetch_article_detail] Không tìm thấy selector 'article' trong trang")
+            except PlaywrightTimeoutError:
+                logger.warning(f"[fetch_article_detail] Không tìm thấy selector 'article' (timeout) trong trang {url}")
             
-            # Đợi thêm 2 giây để mọi JS chạy xong
+            # Đợi thêm 2 giây cho mọi JS chạy xong (nếu còn)
             await page.wait_for_timeout(2000)
             
+            # Lấy HTML sau khi render xong (dù có timeout ở trên hay không)
             html = await page.content()
             await browser.close()
 
@@ -390,7 +400,7 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
             for tag in soup.select(sel):
                 tag.decompose()
 
-        # Tìm phần nội dung chính (có thể thêm selector khác nếu cần)
+        # Tìm phần nội dung chính (có thể mở rộng thêm selector nếu cần)
         selectors = ["main", "article", "#content", ".post", ".entry", ".article-body", ".content"]
         root = None
         for sel in selectors:
@@ -399,7 +409,7 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
                 logger.info(f"[fetch_article_detail] Tìm thấy selector nội dung chính: {sel}")
                 break
         if not root:
-            logger.warning("[fetch_article_detail] Không tìm thấy selector nội dung chính, dùng toàn bộ trang")
+            logger.warning(f"[fetch_article_detail] Không tìm thấy selector nội dung chính, dùng toàn bộ trang {url}")
             root = soup
 
         # Lấy title và meta description (nếu tồn tại)
@@ -421,12 +431,6 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
         logger.info(f"[fetch_article_detail] Độ dài nội dung thô: {len(raw_content)}")
         logger.debug(f"[fetch_article_detail] Đoạn nội dung thô (500 ký tự đầu): {raw_content[:500]}")
 
-        # Nếu nội dung quá ngắn, vẫn trả về (không bỏ qua)
-        # Trường hợp bạn muốn bỏ qua khi quá ngắn, có thể kiểm tra:
-        # if len(raw_content.strip()) < 300:
-        #     logger.warning(f"[fetch_article_detail] Nội dung quá ngắn ({len(raw_content)}) cho URL {url}")
-        #     return {"content": "", "thumbnail": ""}
-
         # 3. Lấy thumbnail: ưu tiên meta og:image, nếu không có thì ảnh đầu tiên trong root
         thumbnail = ""
         ogimg = soup.find("meta", property="og:image")
@@ -444,13 +448,12 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
                     thumbnail = img_tag2["src"]
                     logger.info(f"[fetch_article_detail] Thumbnail ảnh đầu tiên trong trang cho {url}: {thumbnail}")
 
-        # 4. Trả về raw_content (thay cho AI) và thumbnail
+        # 4. Trả về raw_content và thumbnail
         return {"content": raw_content, "thumbnail": thumbnail}
 
     except Exception as e:
         logger.error(f"[fetch_article_detail] Lỗi khi cào chi tiết cho {url}: {e}")
         return {"content": "", "thumbnail": ""}
-
 class DataCollector:
     """Main collector class to orchestrate fetching"""
 
