@@ -465,16 +465,24 @@ class DataCollector:
         }
 
         try:
+            # Tạo fetcher tương ứng với source (rss, api, static)
             fetcher = FetcherFactory.create_fetcher(source)
+            # Lấy danh sách bài từ fetcher
             articles_data = await fetcher.fetch()
 
-            # Lọc lấy tối đa 5 bài viết mới (chưa có trong Article)
-            existing_urls = set(await sync_to_async(list)(Article.objects.filter(url__in=[a['url'] for a in articles_data]).values_list('url', flat=True)))
+            # Lọc các URL đã tồn tại trong Article, chỉ lấy tối đa 5 bài mới
+            existing_urls = set(
+                await sync_to_async(list)(
+                    Article.objects.filter(url__in=[a['url'] for a in articles_data])
+                                   .values_list('url', flat=True)
+                )
+            )
             new_articles = [a for a in articles_data if a['url'] not in existing_urls][:5]
 
             saved_count = 0
             for data in new_articles:
                 try:
+                    # Tạo Article mới với content và thumbnail tạm thời là rỗng
                     article_obj, created = await create_article(
                         url=data['url'],
                         defaults={
@@ -482,20 +490,34 @@ class DataCollector:
                             'source': source,
                             'published_at': data['published_at'],
                             'summary': data.get('summary', ''),
-                            'content': '',  # Chưa cào chi tiết, để rỗng hoặc cào thô nếu muốn
-                            'thumbnail': '',
+                            'content': '',       # sẽ cào chi tiết ngay sau
+                            'thumbnail': '',     # sẽ cào chi tiết ngay sau
                             'is_ai_processed': False,
                             'ai_type': '',
                             'ai_content': '',
                         }
                     )
+
+                    if created:
+                        # Nếu mới tạo, cào chi tiết nội dung và thumbnail
+                        detail = await fetch_article_detail(data['url'])
+                        article_obj.content = detail.get("content", "")
+                        article_obj.thumbnail = detail.get("thumbnail", "")
+                        
+                        # Lưu lại Article (thao tác Django ORM phải chạy đồng bộ)
+                        def save_article_sync():
+                            article_obj.save(update_fields=['content', 'thumbnail'])
+                        await asyncio.to_thread(save_article_sync)
+
                     saved_count += 1
+                    # Tạm nghỉ 2 giây giữa mỗi bài để tránh quá tải
                     await asyncio.sleep(2)
+
                 except Exception as e:
-                    logger.error(f"Error saving article {data.get('url')}: {e}")
+                    logger.error(f"Error saving or crawling detail for {data.get('url')}: {e}")
                     continue
 
-            # Update source.last_fetched
+            # Sau khi xử lý xong, cập nhật last_fetched của source
             source.last_fetched = django_timezone.now()
             await update_source_last_fetched(source, update_fields=['last_fetched'])
 
@@ -513,11 +535,11 @@ class DataCollector:
 
         finally:
             log_data['execution_time'] = time.time() - start_time
-            # Create fetch log
+            # Ghi FetchLog
             await create_fetch_log(**log_data)
 
         return log_data
-
+    
     async def collect_all_active_sources(self, team_code: Optional[str] = None):
         now = django_timezone.now()
         queryset = Source.objects.filter(is_active=True)
