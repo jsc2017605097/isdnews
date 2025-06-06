@@ -356,43 +356,41 @@ async def call_openrouter_ai(content: str, url: str, ai_type: str = "dev") -> st
 async def fetch_article_detail(url: str) -> Dict[str, str]:
     """
     Dùng Playwright để render trang có JavaScript, đợi load hết nội dung rồi lấy HTML,
-    sau đó dùng BeautifulSoup để xử lý trích xuất nội dung và ảnh thumbnail.
+    sau đó dùng BeautifulSoup để trích xuất toàn bộ văn bản (text-only) và ảnh thumbnail.
+    Không gọi AI, mà trả về thẳng raw_content.
     """
     try:
+        # 1. Mở Playwright, đi đến URL và đợi load xong
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             logger.info(f"[fetch_article_detail] Đang truy cập URL: {url}")
             
-            # Truy cập trang
             await page.goto(url)
-            
-            # Đợi trạng thái networkidle (không request mới)
             await page.wait_for_load_state("networkidle")
             
-            # Đợi phần tử chính xuất hiện (thay 'article' bằng selector phù hợp nếu cần)
+            # Đợi thêm selector 'article' để chắc chắn nội dung đã xuất hiện (nếu có)
             try:
                 await page.wait_for_selector('article', timeout=7000)
                 logger.info(f"[fetch_article_detail] Selector 'article' đã xuất hiện")
             except Exception:
                 logger.warning(f"[fetch_article_detail] Không tìm thấy selector 'article' trong trang")
             
-            # Đợi thêm 2 giây cho chắc chắn mọi JS đã chạy xong
+            # Đợi thêm 2 giây để mọi JS chạy xong
             await page.wait_for_timeout(2000)
             
-            # Lấy HTML sau khi render xong
             html = await page.content()
             await browser.close()
 
-        # Xử lý HTML với BeautifulSoup
+        # 2. Phân tích HTML với BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
         
-        # Loại bỏ tag không cần thiết
+        # Loại bỏ các thẻ không cần thiết
         for sel in ["script", "style", "footer", ".ads", ".comments", ".related"]:
             for tag in soup.select(sel):
                 tag.decompose()
 
-        # Tìm phần nội dung chính (có thể mở rộng thêm selector nếu cần)
+        # Tìm phần nội dung chính (có thể thêm selector khác nếu cần)
         selectors = ["main", "article", "#content", ".post", ".entry", ".article-body", ".content"]
         root = None
         for sel in selectors:
@@ -404,49 +402,53 @@ async def fetch_article_detail(url: str) -> Dict[str, str]:
             logger.warning("[fetch_article_detail] Không tìm thấy selector nội dung chính, dùng toàn bộ trang")
             root = soup
 
-        # Lấy title và meta description
+        # Lấy title và meta description (nếu tồn tại)
         title = soup.title.string.strip() if soup.title else ""
         meta_tag = soup.find("meta", attrs={"name": "description"})
         meta = meta_tag["content"].strip() if meta_tag and meta_tag.get("content") else ""
 
-        # Lấy text các đoạn <p>
-        paragraphs = [p.get_text(strip=True) for p in root.find_all("p")]
-        raw_content = f"{title}\n\n{meta}\n\n" + "\n".join(paragraphs)
-        raw_content = raw_content[:4000]
+        # Lấy toàn bộ văn bản từ root
+        full_text = root.get_text(separator="\n", strip=True)
+        if title:
+            full_text = f"{title}\n\n{full_text}"
+        if meta:
+            full_text = f"{full_text}\n\n{meta}"
+
+        # Loại bỏ dòng trống
+        lines = [line for line in full_text.splitlines() if line.strip()]
+        raw_content = "\n".join(lines)
 
         logger.info(f"[fetch_article_detail] Độ dài nội dung thô: {len(raw_content)}")
-        logger.debug(f"[fetch_article_detail] Đoạn nội dung thô: {raw_content[:500]}")
+        logger.debug(f"[fetch_article_detail] Đoạn nội dung thô (500 ký tự đầu): {raw_content[:500]}")
 
-        if len(raw_content.strip()) < 300:
-            logger.warning(f"[fetch_article_detail] Nội dung quá ngắn ({len(raw_content)}) bỏ qua url {url}")
-            return {"content": "", "thumbnail": ""}
+        # Nếu nội dung quá ngắn, vẫn trả về (không bỏ qua)
+        # Trường hợp bạn muốn bỏ qua khi quá ngắn, có thể kiểm tra:
+        # if len(raw_content.strip()) < 300:
+        #     logger.warning(f"[fetch_article_detail] Nội dung quá ngắn ({len(raw_content)}) cho URL {url}")
+        #     return {"content": "", "thumbnail": ""}
 
-        # Gọi AI tóm tắt
-        ai_content = await call_openrouter_ai(raw_content, url)
-        ai_logger.info(f"AI tóm tắt cho {url}: {ai_content[:200]}...")
-
-        # Lấy thumbnail ưu tiên meta og:image, sau đó ảnh đầu tiên trong nội dung
+        # 3. Lấy thumbnail: ưu tiên meta og:image, nếu không có thì ảnh đầu tiên trong root
         thumbnail = ""
         ogimg = soup.find("meta", property="og:image")
         if ogimg and ogimg.get("content"):
             thumbnail = ogimg["content"]
-            ai_logger.info(f"Thumbnail og:image cho {url}: {thumbnail}")
+            logger.info(f"[fetch_article_detail] Thumbnail og:image cho {url}: {thumbnail}")
         else:
             img_tag = root.find("img") if root else None
             if img_tag and img_tag.get("src"):
                 thumbnail = img_tag["src"]
-                ai_logger.info(f"Thumbnail ảnh đầu tiên trong nội dung cho {url}: {thumbnail}")
+                logger.info(f"[fetch_article_detail] Thumbnail ảnh đầu tiên trong nội dung cho {url}: {thumbnail}")
             else:
                 img_tag2 = soup.find("img")
                 if img_tag2 and img_tag2.get("src"):
                     thumbnail = img_tag2["src"]
-                    ai_logger.info(f"Thumbnail ảnh đầu tiên trong trang cho {url}: {thumbnail}")
+                    logger.info(f"[fetch_article_detail] Thumbnail ảnh đầu tiên trong trang cho {url}: {thumbnail}")
 
-        return {"content": ai_content, "thumbnail": thumbnail}
+        # 4. Trả về raw_content (thay cho AI) và thumbnail
+        return {"content": raw_content, "thumbnail": thumbnail}
 
     except Exception as e:
-        logger.error(f"Lỗi fetch_article_detail cho {url}: {e}")
-        ai_logger.error(f"Lỗi fetch_article_detail cho {url}: {e}")
+        logger.error(f"[fetch_article_detail] Lỗi khi cào chi tiết cho {url}: {e}")
         return {"content": "", "thumbnail": ""}
 
 class DataCollector:
